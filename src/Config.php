@@ -28,6 +28,16 @@ final class Config
         public readonly int $sessionTtlSeconds,
         public readonly string $handoffWebhookUrl,
         public readonly string $storageDir,
+        /** "file" (local dev, single server) or "firestore" (Cloud Run) */
+        public readonly string $storageBackend = 'file',
+        public readonly string $gcpProject = '',
+        public readonly string $firestoreDatabase = '(default)',
+        public readonly string $firestoreEmulatorHost = '',
+        /** "file" writes var/logs; "stderr" sends structured logs to Cloud Logging */
+        public readonly string $logTarget = 'file',
+        public readonly string $promptCanary = '',
+        /** proxies in front of the app that append to X-Forwarded-For (Cloud Run itself = 1) */
+        public readonly int $trustedProxyHops = 0,
     ) {
     }
 
@@ -57,6 +67,13 @@ final class Config
             sessionTtlSeconds: (int) $env('SESSION_TTL_SECONDS', '86400'),
             handoffWebhookUrl: $env('HANDOFF_WEBHOOK_URL'),
             storageDir: rtrim($env('STORAGE_DIR', dirname(__DIR__) . '/var'), '/'),
+            storageBackend: $env('STORAGE_BACKEND', 'file'),
+            gcpProject: $env('GCP_PROJECT', $env('GOOGLE_CLOUD_PROJECT')),
+            firestoreDatabase: $env('FIRESTORE_DATABASE', '(default)'),
+            firestoreEmulatorHost: $env('FIRESTORE_EMULATOR_HOST'),
+            logTarget: $env('LOG_TARGET', 'file'),
+            promptCanary: $env('PROMPT_CANARY'),
+            trustedProxyHops: (int) $env('TRUSTED_PROXY_HOPS', '0'),
         );
     }
 

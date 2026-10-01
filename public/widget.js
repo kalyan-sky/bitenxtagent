@@ -1,13 +1,20 @@
 /*
  * BiteNXT support chat widget.
  *
- *   <script src="https://chat.bitenxt.com/widget.js"></script>
+ * Simplest: one tag. The API address is taken from where this file was
+ * loaded (e.g. your Cloud Run URL), and the customer's Magento token is read
+ * from localStorage under the key you name (omit it for guest-only chat).
+ *
+ *   <script src="https://YOUR-SERVICE-xxxx.a.run.app/widget.js"
+ *           data-auto-init data-token-key="customerToken"></script>
+ *
+ * Or initialise it yourself for full control:
+ *
+ *   <script src="https://YOUR-SERVICE-xxxx.a.run.app/widget.js"></script>
  *   <script>
  *     BitenxtChat.init({
- *       apiUrl: 'https://chat.bitenxt.com/chat',
- *       // Return the signed-in customer's Magento token (from
- *       // generateCustomerTokenWithId), or null for guests.
- *       getToken: () => localStorage.getItem('customerToken'),
+ *       // apiUrl defaults to <script origin>/chat
+ *       getToken: () => store.getState().auth.token, // Magento customer token, or null
  *     });
  *   </script>
  *
@@ -18,6 +25,9 @@
   'use strict';
 
   var STORAGE_KEY = 'bitenxt_chat_session';
+  var script = document.currentScript;
+  var defaultApiUrl = script && script.src ? new URL('/chat', script.src).href : '/chat';
+  var initialised = false;
 
   function el(tag, attrs, text) {
     var node = document.createElement(tag);
@@ -27,7 +37,10 @@
   }
 
   function init(options) {
-    var apiUrl = options.apiUrl;
+    options = options || {};
+    if (initialised) return;
+    initialised = true;
+    var apiUrl = options.apiUrl || defaultApiUrl;
     var getToken = options.getToken || function () { return null; };
     var title = options.title || 'BiteNXT Support';
     var greeting = options.greeting ||
@@ -132,4 +145,22 @@
   }
 
   window.BitenxtChat = { init: init };
+
+  if (script && script.hasAttribute('data-auto-init')) {
+    var tokenKey = script.getAttribute('data-token-key');
+    var start = function () {
+      init({
+        title: script.getAttribute('data-title') || undefined,
+        getToken: function () {
+          if (!tokenKey) return null;
+          try { return localStorage.getItem(tokenKey); } catch (e) { return null; }
+        }
+      });
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', start);
+    } else {
+      start();
+    }
+  }
 })();

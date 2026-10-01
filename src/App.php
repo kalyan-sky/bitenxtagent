@@ -9,13 +9,16 @@ use Bitenxt\SupportAgent\Agent\AnthropicClaudeGateway;
 use Bitenxt\SupportAgent\Agent\SupportAgent;
 use Bitenxt\SupportAgent\Agent\SystemPrompt;
 use Bitenxt\SupportAgent\Chat\ChatService;
+use Bitenxt\SupportAgent\Gcp\FirestoreClient;
+use Bitenxt\SupportAgent\Guardrails\FileRateLimiter;
+use Bitenxt\SupportAgent\Guardrails\FirestoreRateLimiter;
 use Bitenxt\SupportAgent\Guardrails\InputGuard;
 use Bitenxt\SupportAgent\Guardrails\OutputGuard;
-use Bitenxt\SupportAgent\Guardrails\RateLimiter;
 use Bitenxt\SupportAgent\Knowledge\KnowledgeBase;
 use Bitenxt\SupportAgent\Magento\GraphQLClient;
 use Bitenxt\SupportAgent\Magento\MagentoCustomerDataSource;
-use Bitenxt\SupportAgent\Session\SessionStore;
+use Bitenxt\SupportAgent\Session\FileSessionStore;
+use Bitenxt\SupportAgent\Session\FirestoreSessionStore;
 use Bitenxt\SupportAgent\Support\HandoffNotifier;
 use Bitenxt\SupportAgent\Support\Logger;
 
@@ -25,9 +28,19 @@ final class App
     public static function chatService(Config $config): ChatService
     {
         $storage = $config->storageDir;
-        $canary = self::canary($storage);
-        $logger = new Logger($storage . '/logs/chat.jsonl');
+        $canary = self::canary($config);
+        $onCloud = $config->logTarget === 'stderr';
+        $logger = new Logger($onCloud ? 'php://stderr' : $storage . '/logs/chat.jsonl');
         $magento = new MagentoCustomerDataSource(new GraphQLClient($config->magentoGraphqlUrl, $config->magentoTimeoutSeconds));
+
+        if ($config->storageBackend === 'firestore') {
+            $firestore = new FirestoreClient($config->gcpProject, $config->firestoreDatabase, $config->firestoreEmulatorHost);
+            $sessions = new FirestoreSessionStore($firestore, $config->sessionTtlSeconds);
+            $rateLimiter = new FirestoreRateLimiter($firestore, $config->rateLimitPerMinute, $config->rateLimitPerDay);
+        } else {
+            $sessions = new FileSessionStore($storage . '/sessions', $config->sessionTtlSeconds);
+            $rateLimiter = new FileRateLimiter($storage . '/ratelimit', $config->rateLimitPerMinute, $config->rateLimitPerDay);
+        }
 
         $agent = new SupportAgent(
             new AnthropicClaudeGateway(new Client(apiKey: $config->anthropicApiKey), $config->model, $config->effort),
@@ -35,34 +48,29 @@ final class App
         );
 
         return new ChatService(
-            sessions: new SessionStore($storage . '/sessions', $config->sessionTtlSeconds),
-            rateLimiter: new RateLimiter($storage . '/ratelimit', $config->rateLimitPerMinute, $config->rateLimitPerDay),
+            sessions: $sessions,
+            rateLimiter: $rateLimiter,
             inputGuard: new InputGuard($config->maxMessageChars),
             outputGuard: new OutputGuard($canary, array_values(array_filter([$config->supportEmail, $config->supportPhone]))),
             agent: $agent,
             magento: $magento,
             knowledge: new KnowledgeBase(dirname(__DIR__) . '/knowledge'),
-            handoff: new HandoffNotifier($storage . '/handoffs.jsonl', $config->handoffWebhookUrl),
+            handoff: new HandoffNotifier($onCloud ? 'php://stderr' : $storage . '/handoffs.jsonl', $config->handoffWebhookUrl),
             logger: $logger,
             maxTurnsPerSession: $config->maxTurnsPerSession,
         );
     }
 
     /**
-     * A random marker embedded in the system prompt. If it ever shows up in a
-     * reply, the prompt is being leaked and OutputGuard blocks the reply.
-     * Stored on disk so the prompt (and its cache) stays stable across requests.
+     * A marker embedded in the system prompt. If it ever shows up in a reply,
+     * the prompt is being leaked and OutputGuard blocks the reply. It must be
+     * identical on every instance (and stable over time) so the prompt cache
+     * is shared, so it is derived from a secret rather than generated per box.
      */
-    private static function canary(string $storage): string
+    private static function canary(Config $config): string
     {
-        $file = $storage . '/canary.txt';
-        if (!is_file($file)) {
-            if (!is_dir($storage)) {
-                mkdir($storage, 0700, true);
-            }
-            file_put_contents($file, 'ref-' . bin2hex(random_bytes(8)), LOCK_EX);
-        }
+        $secret = $config->promptCanary !== '' ? $config->promptCanary : $config->anthropicApiKey;
 
-        return trim((string) file_get_contents($file));
+        return 'ref-' . substr(hash_hmac('sha256', 'bitenxt-prompt-canary', $secret), 0, 16);
     }
 }

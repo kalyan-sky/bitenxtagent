@@ -6,8 +6,8 @@ namespace Bitenxt\SupportAgent\Support;
 
 /**
  * Sends "a human should pick this up" requests to the support team. Always
- * appended to var/handoffs.jsonl; also POSTed to a webhook (Slack, Teams,
- * helpdesk) when HANDOFF_WEBHOOK_URL is set. This is staff-facing, so it may
+ * recorded (var/handoffs.jsonl locally, Cloud Logging on Cloud Run); also
+ * POSTed to a webhook (Slack, Teams, helpdesk) when HANDOFF_WEBHOOK_URL is set. This is staff-facing, so it may
  * include the customer's account email.
  */
 class HandoffNotifier
@@ -22,7 +22,10 @@ class HandoffNotifier
     public function notify(array $handoff): bool
     {
         $handoff['ts'] = date(DATE_ATOM);
-        file_put_contents($this->file, json_encode($handoff, JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+        Logger::append($this->file, (string) json_encode(
+            ['severity' => 'WARNING', 'message' => 'handoff', 'event' => 'handoff'] + $handoff,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+        ));
 
         if ($this->webhookUrl === '') {
             return true;

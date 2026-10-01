@@ -3,3 +3,4 @@
 !/var/.gitkeep
 .env
 .phpunit.cache/
+deploy/env.yaml

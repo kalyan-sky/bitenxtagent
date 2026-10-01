@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+!.env.example
+vendor
+var
+tests
+.phpunit.cache
+phpunit.xml
+*.md
+!knowledge/*.md

@@ -9,9 +9,9 @@ use Bitenxt\SupportAgent\Agent\SupportTools;
 use Bitenxt\SupportAgent\Chat\ChatService;
 use Bitenxt\SupportAgent\Guardrails\InputGuard;
 use Bitenxt\SupportAgent\Guardrails\OutputGuard;
-use Bitenxt\SupportAgent\Guardrails\RateLimiter;
+use Bitenxt\SupportAgent\Guardrails\FileRateLimiter;
 use Bitenxt\SupportAgent\Knowledge\KnowledgeBase;
-use Bitenxt\SupportAgent\Session\SessionStore;
+use Bitenxt\SupportAgent\Session\FileSessionStore;
 use Bitenxt\SupportAgent\Support\HandoffNotifier;
 use Bitenxt\SupportAgent\Support\Logger;
 use PHPUnit\Framework\TestCase;
@@ -20,7 +20,7 @@ final class ChatServiceTest extends TestCase
 {
     private string $dir;
     private FakeMagento $magento;
-    private SessionStore $sessions;
+    private FileSessionStore $sessions;
 
     protected function setUp(): void
     {
@@ -28,7 +28,7 @@ final class ChatServiceTest extends TestCase
         mkdir($this->dir . '/kb', 0700, true);
         file_put_contents($this->dir . '/kb/shipping.md', "# Shipping\n\n## Turnaround times\nCrowns take 5 working days.\n");
         $this->magento = new FakeMagento();
-        $this->sessions = new SessionStore($this->dir . '/sessions', 3600);
+        $this->sessions = new FileSessionStore($this->dir . '/sessions', 3600);
     }
 
     protected function tearDown(): void
@@ -40,7 +40,7 @@ final class ChatServiceTest extends TestCase
     {
         return new ChatService(
             sessions: $this->sessions,
-            rateLimiter: new RateLimiter($this->dir . '/rl', 100, 1000),
+            rateLimiter: new FileRateLimiter($this->dir . '/rl', 100, 1000),
             inputGuard: new InputGuard(2000),
             outputGuard: new OutputGuard('ref-canary', ['support@bitenxt.com']),
             agent: new SupportAgent($claude, 'system prompt [ref-canary]'),

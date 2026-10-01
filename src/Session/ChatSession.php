@@ -35,6 +35,20 @@ final class ChatSession
     ) {
     }
 
+    /**
+     * A brand-new session with a random ID. Unknown, expired or malformed IDs
+     * always lead here: a client can never choose the ID of its session.
+     */
+    public static function start(): self
+    {
+        return new self(id: bin2hex(random_bytes(24)), createdAt: time());
+    }
+
+    public static function isValidId(string $id): bool
+    {
+        return (bool) preg_match('/^[a-f0-9]{48}$/', $id);
+    }
+
     public function isAuthenticated(): bool
     {
         return $this->customerId !== '' || $this->customerEmail !== '';

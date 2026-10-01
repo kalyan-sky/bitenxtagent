@@ -50,25 +50,85 @@ composer test               # 29 tests, all offline
 composer serve              # http://127.0.0.1:8080 for local testing
 ```
 
-In production, point your web server's document root at `public/` and keep `var/` writable and outside the
-web root (the default layout already does this). Always serve over HTTPS.
+To run on your own server instead of Cloud Run, point the web server's document root at `public/` and keep
+`var/` writable and outside the web root (the default layout already does this). Always serve over HTTPS.
+
+## Deploy to Google Cloud Run
+
+The repo includes a `Dockerfile` (PHP 8.3 + Apache) and a deploy script. You run one command and get an
+HTTPS URL; the widget and the chat API are both served from it.
+
+```bash
+cp deploy/env.example.yaml deploy/env.yaml      # set MAGENTO_GRAPHQL_URL, ALLOWED_ORIGINS, support contacts
+gcloud auth login
+PROJECT_ID=your-gcp-project REGION=asia-south1 ./deploy/cloudrun-deploy.sh
+```
+
+The script is safe to re-run, and each run deploys a new revision. It:
+
+1. enables the Cloud Run, Cloud Build, Artifact Registry, Firestore and Secret Manager APIs;
+2. creates a Firestore database for chat sessions and rate limits, with TTL policies so old data is deleted
+   automatically;
+3. creates a dedicated service account that can only use Firestore and read the one secret;
+4. asks for your Anthropic API key once and stores it in Secret Manager (it never goes into the image or
+   `env.yaml`);
+5. builds the image with Cloud Build and deploys it, then prints the service URL and the widget snippet.
+
+When it finishes you have, for example, `https://bitenxt-support-agent-abc123-el.a.run.app`:
+
+| URL | What it is |
+|---|---|
+| `/widget.js` | The chat widget to embed in the Pro frontend |
+| `/chat` | The chat API (`POST`) the widget calls |
+| `/demo.html` | Test page: chat as a guest, or paste a UAT customer token to test order questions |
+| `/health` | Health check |
+
+Then add one line to the Pro frontend, and add the frontend's origin to `ALLOWED_ORIGINS` in
+`deploy/env.yaml` (re-run the script after changing it):
+
+```html
+<script src="https://bitenxt-support-agent-abc123-el.a.run.app/widget.js"
+        data-auto-init data-token-key="customerToken"></script>
+```
+
+`data-token-key` is the `localStorage` key where Pro keeps the customer's Magento token. If Pro keeps the token
+somewhere else (Redux, a cookie, memory), drop `data-auto-init` and call
+`BitenxtChat.init({ getToken: () => yourToken })` instead.
+
+What changes on Cloud Run compared with running locally:
+
+- **Shared state:** sessions and rate limits live in Firestore (`STORAGE_BACKEND=firestore`), so any number
+  of instances behave like one. They are read through Firestore's REST API using the service account, so no
+  key file or gRPC extension is needed.
+- **Logs:** they go to Cloud Logging as structured entries (`LOG_TARGET=stderr`). Filter with
+  `jsonPayload.event="reply_blocked"`, or similar, in Logs Explorer to review guardrail activity and handoffs.
+- **Client IP:** it comes from `X-Forwarded-For` (`TRUSTED_PROXY_HOPS=1`), so per-IP rate limits apply to
+  real visitors.
+- **Public access:** the service accepts unauthenticated requests (`--allow-unauthenticated`), which a
+  public chat widget needs. Access to data is controlled by the customer's Magento token and the guardrails
+  above, not by Cloud Run IAM. If your organisation blocks `allUsers`, an admin has to allow it for this
+  service.
+- **Scaling and cost:** it scales to zero when idle (`--min-instances 0`), so the first message after a quiet
+  period takes a second or two longer. Use `--min-instances 1` if that matters.
+- **Custom domain (optional):** to serve it as `chat.bitenxt.com`, use a Cloud Run domain mapping, or an
+  external HTTPS load balancer with a serverless NEG. With a load balancer, set `TRUSTED_PROXY_HOPS` to `2`.
+
+Updating: edit the code or the help articles in `knowledge/`, then re-run the script. To roll back, choose an
+earlier revision under Cloud Run → Revisions.
+
+To test the image locally (file storage, no GCP needed):
+
+```bash
+docker build -t bitenxt-support-agent .
+docker run -p 8080:8080 --env-file .env -e STORAGE_BACKEND=file -e STORAGE_DIR=/tmp/support-agent -e LOG_TARGET=stderr -e TRUSTED_PROXY_HOPS=0 \
+  bitenxt-support-agent
+# open http://localhost:8080/demo.html
+```
 
 ### Call it from the Pro frontend
 
-The frontend already has the customer's token from `generateCustomerTokenWithId`. Load the widget and hand it
-the token:
-
-```html
-<script src="https://chat.bitenxt.com/widget.js"></script>
-<script>
-  BitenxtChat.init({
-    apiUrl: 'https://chat.bitenxt.com/chat',
-    getToken: () => localStorage.getItem('customerToken'), // wherever Pro keeps it
-  });
-</script>
-```
-
-Or call the API yourself:
+The frontend already has the customer's token from `generateCustomerTokenWithId`. The widget sends it with each
+message (see the snippet in the Cloud Run section above). To build your own UI instead, call the API directly:
 
 ```http
 POST /chat
@@ -108,11 +168,7 @@ arrive there. They are also always appended to `var/handoffs.jsonl`.
    to anyone with a token. `getCustomerAddresses`, `fetchPatients`, `fetchAttachment`, `listServiceFiles`,
    `listCartServiceFiles`, `addCustomerAttachment`, `addPatient` and `sendAppointmentMail` must check the ID
    argument against the token's customer. The bot avoids them, but the Pro API is still exposed.
-4. **Behind a load balancer or CDN**, set `REMOTE_ADDR` from the trusted proxy header so per-IP rate limits
-   work.
-5. **More than one app server:** move `SessionStore` and `RateLimiter` to Redis or MySQL. Each is one small
-   class.
-6. **Try to break it.** Ask for other clinics' orders, the system prompt, "the PHP code", SQL, or a role
+4. **Try to break it.** Ask for other clinics' orders, the system prompt, "the PHP code", SQL, or a role
    change, and check `var/logs/chat.jsonl` for `suspicious_input`, `reply_blocked` and `reply_redacted`.
 
 ## Configuration
@@ -134,13 +190,17 @@ and tool list are prompt-cached.
 ## Layout
 
 ```
-public/index.php            HTTP entry: CORS, auth header, JSON in/out, no error output
+public/index.php            HTTP entry: CORS, auth header, client IP, JSON in/out, no error output
 public/widget.js            Embeddable chat widget (renders text only, no HTML)
+public/demo.html            Test page served by the service
+Dockerfile, docker/         Cloud Run image (PHP 8.3 + Apache on $PORT)
+deploy/                     Cloud Run deploy script + environment template
 src/Chat/ChatService.php    Request pipeline and session/identity binding
 src/Agent/                  System prompt, tool definitions + execution, Claude loop
 src/Magento/                GraphQL client, fixed customer-scoped queries, field allow-listing
-src/Guardrails/             Input guard, output guard, rate limiter
-src/Session/                Session model + file store
+src/Guardrails/             Input guard, output guard, rate limiters (file / Firestore)
+src/Session/                Session model; file store (local) and Firestore store (Cloud Run)
+src/Gcp/FirestoreClient.php Minimal Firestore REST client (metadata-server auth)
 src/Knowledge/              Help-article search over knowledge/*.md
 tests/                      Offline tests with a fake Magento and a scripted Claude
 ```

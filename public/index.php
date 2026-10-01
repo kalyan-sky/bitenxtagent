@@ -15,9 +15,11 @@ $config = Config::fromEnvironment(dirname(__DIR__) . '/.env');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-// --- CORS: only the configured frontends may call the API ---
+// --- CORS: only the configured frontends (and this service's own demo page) may call the API ---
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-if ($origin !== '' && in_array($origin, $config->allowedOrigins, true)) {
+$originAllowed = in_array($origin, $config->allowedOrigins, true)
+    || ($origin !== '' && preg_replace('#^https?://#', '', $origin) === ($_SERVER['HTTP_HOST'] ?? null));
+if ($origin !== '' && $originAllowed) {
     header('Access-Control-Allow-Origin: ' . $origin);
     header('Vary: Origin');
     header('Access-Control-Allow-Methods: POST, OPTIONS');
@@ -43,13 +45,14 @@ if ($path === '/health') {
 }
 if ($path === '/widget.js') {
     header('Content-Type: application/javascript; charset=utf-8');
+    header('Cache-Control: public, max-age=300');
     readfile(__DIR__ . '/widget.js');
     exit;
 }
 if ($path !== '/chat' || $method !== 'POST') {
     $respond(404, ['error' => 'not_found']);
 }
-if ($origin !== '' && !in_array($origin, $config->allowedOrigins, true)) {
+if ($origin !== '' && !$originAllowed) {
     $respond(403, ['error' => 'origin_not_allowed']);
 }
 
@@ -65,12 +68,21 @@ if (preg_match('/^Bearer\s+([A-Za-z0-9._\-]{10,2048})$/', $_SERVER['HTTP_AUTHORI
     $token = $m[1];
 }
 
+// Behind Cloud Run (and any load balancer) REMOTE_ADDR is the proxy, not the
+// visitor. Each trusted proxy appends the address it saw to X-Forwarded-For,
+// so count back that many entries; anything further left is client-supplied.
+$clientIp = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+if ($config->trustedProxyHops > 0 && !empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+    $hops = array_map('trim', explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']));
+    $clientIp = $hops[count($hops) - $config->trustedProxyHops] ?? $clientIp;
+}
+
 try {
     $result = App::chatService($config)->handle(
         is_string($body['session_id'] ?? null) ? $body['session_id'] : null,
         $body['message'],
         $token,
-        $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+        $clientIp,
     );
     $respond(200, $result);
 } catch (\Throwable $e) {

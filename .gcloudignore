@@ -1,0 +1,10 @@
+# Files NOT uploaded to Cloud Build by `gcloud run deploy --source`.
+.git
+.gitignore
+.env
+.env.*
+deploy/env.yaml
+vendor/
+var/
+tests/
+.phpunit.cache/
