@@ -35,10 +35,10 @@ final class App
 
         if ($config->storageBackend === 'firestore') {
             $firestore = new FirestoreClient($config->gcpProject, $config->firestoreDatabase, $config->firestoreEmulatorHost);
-            $sessions = new FirestoreSessionStore($firestore, $config->sessionTtlSeconds);
+            $sessions = new FirestoreSessionStore($firestore, $config->historyRetentionSeconds);
             $rateLimiter = new FirestoreRateLimiter($firestore, $config->rateLimitPerMinute, $config->rateLimitPerDay);
         } else {
-            $sessions = new FileSessionStore($storage . '/sessions', $config->sessionTtlSeconds);
+            $sessions = new FileSessionStore($storage . '/sessions', $config->historyRetentionSeconds);
             $rateLimiter = new FileRateLimiter($storage . '/ratelimit', $config->rateLimitPerMinute, $config->rateLimitPerDay);
         }
 
@@ -46,7 +46,6 @@ final class App
             new AnthropicClaudeGateway(new Client(apiKey: $config->anthropicApiKey), $config->model, $config->effort),
             SystemPrompt::build($config->storeName, $config->supportEmail, $config->supportPhone, $canary),
         );
-
         return new ChatService(
             sessions: $sessions,
             rateLimiter: $rateLimiter,
@@ -57,7 +56,8 @@ final class App
             knowledge: new KnowledgeBase(dirname(__DIR__) . '/knowledge'),
             handoff: new HandoffNotifier($onCloud ? 'php://stderr' : $storage . '/handoffs.jsonl', $config->handoffWebhookUrl),
             logger: $logger,
-            maxTurnsPerSession: $config->maxTurnsPerSession,
+            maxTurnsPerConversation: $config->maxTurnsPerConversation,
+            conversationIdleSeconds: $config->conversationIdleSeconds,
         );
     }
 

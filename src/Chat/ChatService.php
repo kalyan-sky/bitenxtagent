@@ -22,16 +22,22 @@ use Bitenxt\SupportAgent\Support\HandoffNotifier;
 use Bitenxt\SupportAgent\Support\Logger;
 
 /**
- * One chat request, end to end:
- * rate limit → verify login token → session → input guard → agent + tools → output guard → save.
+ * Chat for logged-in Pro customers, Amazon-style: each customer has one
+ * continuous thread. They never pick or manage conversations; the server finds
+ * their current one. Behind the scenes the thread is split into
+ * "conversations" (the context Claude sees): after a quiet spell, or when one
+ * gets long, the next message starts a fresh conversation, while the customer
+ * still sees all earlier messages in the same window.
+ *
+ * Per message: rate limit → verify login token → current conversation → input
+ * guard → agent + tools → output guard → transcript → save.
  */
 final class ChatService
 {
     public const BUSY_REPLY = "I'm getting a lot of messages right now. Please wait a minute and try again.";
     public const LOGIN_REQUIRED_REPLY = 'Please log in to your BiteNXT Pro account to use support chat.';
     public const UNAVAILABLE_REPLY = "We can't verify your account right now. Please try again in a few minutes.";
-    public const SESSION_FULL_REPLY = 'This conversation has reached its length limit. Please start a new chat, '
-        . 'or ask for our support team if you still need help.';
+    public const HISTORY_LIMIT = 200;
 
     public function __construct(
         private readonly SessionStore $sessions,
@@ -43,56 +49,42 @@ final class ChatService
         private readonly KnowledgeBase $knowledge,
         private readonly HandoffNotifier $handoff,
         private readonly Logger $logger,
-        private readonly int $maxTurnsPerSession,
+        private readonly int $maxTurnsPerConversation,
+        private readonly int $conversationIdleSeconds = 1800,
     ) {
     }
 
     /**
-     * Only logged-in Pro customers can chat. A request without a valid Magento
-     * customer token is refused before any session is loaded or Claude is called.
+     * Handles one customer message. A request without a valid Magento
+     * customer token is refused before anything is loaded or Claude is called.
      *
-     * @return array{status: int, session_id?: string, reply: string, error?: string}
+     * @return array{status: int, reply: string, at?: int, error?: string}
      */
-    public function handle(?string $sessionId, string $message, ?string $customerToken, string $clientIp): array
+    public function handle(string $message, ?string $customerToken, string $clientIp): array
     {
-        if (!$this->rateLimiter->hit('ip:' . $clientIp)) {
-            $this->logger->log('rate_limited', ['ip' => Logger::pseudonym($clientIp)]);
+        $customer = $this->authenticate($customerToken, $clientIp);
+        if (isset($customer['status'])) {
+            return $customer;
+        }
+        $owner = self::ownerKey($customer);
 
+        if (!$this->rateLimiter->hit('customer:' . $owner)) {
             return ['status' => 429, 'error' => 'rate_limited', 'reply' => self::BUSY_REPLY];
-        }
-
-        if ($customerToken === null || $customerToken === '') {
-            return self::loginRequired();
-        }
-        try {
-            $customer = $this->magento->currentCustomer($customerToken);
-        } catch (MagentoAuthException) {
-            $this->logger->log('token_rejected', ['ip' => Logger::pseudonym($clientIp)]);
-
-            return self::loginRequired();
-        } catch (MagentoException $e) {
-            $this->logger->log('magento_error', ['detail' => $e->getMessage()]);
-
-            return ['status' => 503, 'error' => 'unavailable', 'reply' => self::UNAVAILABLE_REPLY];
-        }
-
-        $session = $this->bindIdentity($this->sessions->load($sessionId), $customerToken, $customer);
-
-        if (!$this->rateLimiter->hit('session:' . $session->id)
-            || !$this->rateLimiter->hit('customer:' . $session->customerId)) {
-            return $this->reply($session, self::BUSY_REPLY, 429);
         }
 
         $input = $this->inputGuard->check($message);
         if (!$input->allowed) {
-            return $this->reply($session, (string) $input->rejectionMessage);
-        }
-        if ($input->flags !== []) {
-            $this->logger->log('suspicious_input', ['session' => $session->id, 'flags' => $input->flags]);
+            return ['status' => 400, 'error' => 'invalid_message', 'reply' => (string) $input->rejectionMessage];
         }
 
-        if ($session->userTurns >= $this->maxTurnsPerSession) {
-            return $this->reply($session, self::SESSION_FULL_REPLY);
+        $session = $this->currentConversation($owner);
+        $session->tokenHash = hash('sha256', (string) $customerToken);
+        $session->customerId = $customer['customer_id'];
+        $session->customerFirstname = $customer['firstname'];
+        $session->customerEmail = $customer['email'];
+
+        if ($input->flags !== []) {
+            $this->logger->log('suspicious_input', ['session' => $session->id, 'flags' => $input->flags]);
         }
 
         $historyLength = count($session->messages);
@@ -102,14 +94,12 @@ final class ChatService
             $result = $this->agent->respond($session, $input->text, $tools);
         } catch (RateLimitException | APIConnectionException $e) {
             $this->logger->log('claude_unavailable', ['session' => $session->id, 'error' => $e::class]);
-            $this->sessions->save($session);
 
-            return $this->reply($session, SupportAgent::FALLBACK_REPLY);
+            return $this->finish($session, $input->text, SupportAgent::FALLBACK_REPLY);
         } catch (APIStatusException $e) {
             $this->logger->log('claude_error', ['session' => $session->id, 'error' => $e::class, 'status' => $e->getCode()]);
-            $this->sessions->save($session);
 
-            return $this->reply($session, SupportAgent::FALLBACK_REPLY);
+            return $this->finish($session, $input->text, SupportAgent::FALLBACK_REPLY);
         }
 
         $allowed = $session->safeValues;
@@ -127,55 +117,113 @@ final class ChatService
         }
 
         $session->userTurns++;
-        $this->sessions->save($session);
         $this->logger->log('turn', [
             'session' => $session->id,
-            'customer' => Logger::pseudonym($session->customerId),
+            'customer' => Logger::pseudonym($owner),
             'stop_reason' => $result['stop_reason'],
             'turn' => $session->userTurns,
         ]);
 
-        return $this->reply($session, $output->text);
+        return $this->finish($session, $input->text, $output->text);
     }
 
     /**
-     * Ties the session to the customer verified on *this* request. A session
-     * ID alone never grants access to a conversation: a session that belongs
-     * to anyone else is replaced with a fresh one. The same customer logging
-     * in again (new token) keeps their conversation.
+     * The customer's chat thread, oldest first: exactly the messages they were
+     * shown, across all their conversations in the retention period.
      *
-     * @param array{customer_id: string, firstname: string, email: string, business_name: string} $customer
+     * @return array{status: int, messages?: list<array{role: string, text: string, at: int}>, reply?: string, error?: string}
      */
-    private function bindIdentity(ChatSession $session, string $token, array $customer): ChatSession
+    public function history(?string $customerToken, string $clientIp): array
     {
-        $owner = $customer['customer_id'] !== '' ? 'id:' . $customer['customer_id'] : 'email:' . strtolower($customer['email']);
-        $sessionOwner = $session->customerId !== '' ? 'id:' . $session->customerId
-            : ($session->customerEmail !== '' ? 'email:' . strtolower($session->customerEmail) : '');
+        $customer = $this->authenticate($customerToken, $clientIp);
+        if (isset($customer['status'])) {
+            return $customer;
+        }
+        $owner = self::ownerKey($customer);
 
-        if ($sessionOwner !== $owner) {
-            if ($sessionOwner !== '') {
-                $this->logger->log('session_reset', ['session' => $session->id, 'reason' => 'different_customer']);
+        $messages = [];
+        foreach ($this->sessions->findByOwner($owner, 50) as $summary) {
+            $session = $this->sessions->load($summary['id']);
+            if ($session->id !== $summary['id'] || $session->ownerKey() !== $owner) {
+                continue; // expired meanwhile, or not this customer's
             }
-            $session = ChatSession::start();
+            $messages = array_merge($session->transcript, $messages);
+            if (count($messages) >= self::HISTORY_LIMIT) {
+                break;
+            }
+        }
+        usort($messages, static fn ($a, $b) => $a['at'] <=> $b['at']);
+
+        return ['status' => 200, 'messages' => array_slice($messages, -self::HISTORY_LIMIT)];
+    }
+
+    /**
+     * Verifies the Magento customer token. Returns the customer, or an error
+     * response (which has a `status` key).
+     *
+     * @return array<string, mixed>
+     */
+    private function authenticate(?string $customerToken, string $clientIp): array
+    {
+        if (!$this->rateLimiter->hit('ip:' . $clientIp)) {
+            $this->logger->log('rate_limited', ['ip' => Logger::pseudonym($clientIp)]);
+
+            return ['status' => 429, 'error' => 'rate_limited', 'reply' => self::BUSY_REPLY];
+        }
+        if ($customerToken === null || $customerToken === '') {
+            return self::loginRequired();
+        }
+        try {
+            return $this->magento->currentCustomer($customerToken);
+        } catch (MagentoAuthException) {
+            $this->logger->log('token_rejected', ['ip' => Logger::pseudonym($clientIp)]);
+
+            return self::loginRequired();
+        } catch (MagentoException $e) {
+            $this->logger->log('magento_error', ['detail' => $e->getMessage()]);
+
+            return ['status' => 503, 'error' => 'unavailable', 'reply' => self::UNAVAILABLE_REPLY];
+        }
+    }
+
+    /**
+     * The customer's most recent conversation if it is still active, otherwise
+     * a new one. Conversations are only ever found by the verified customer's
+     * key, so nobody can reach another customer's chat.
+     */
+    private function currentConversation(string $owner): ChatSession
+    {
+        $latest = $this->sessions->findByOwner($owner, 1)[0] ?? null;
+        if ($latest !== null && $latest['updatedAt'] >= time() - $this->conversationIdleSeconds) {
+            $session = $this->sessions->load($latest['id']);
+            if ($session->id === $latest['id'] && $session->ownerKey() === $owner
+                && $session->userTurns < $this->maxTurnsPerConversation) {
+                return $session;
+            }
         }
 
-        $session->tokenHash = hash('sha256', $token);
-        $session->customerId = $customer['customer_id'];
-        $session->customerFirstname = $customer['firstname'];
-        $session->customerEmail = $customer['email'];
+        return ChatSession::start();
+    }
 
-        return $session;
+    /** Records what the customer saw, saves, and builds the response. */
+    private function finish(ChatSession $session, string $userText, string $reply): array
+    {
+        $session->addTranscript('user', $userText);
+        $session->addTranscript('assistant', $reply);
+        $this->sessions->save($session);
+
+        return ['status' => 200, 'reply' => $reply, 'at' => time()];
+    }
+
+    /** @param array<string, mixed> $customer */
+    private static function ownerKey(array $customer): string
+    {
+        return ChatSession::ownerKeyFor((string) $customer['customer_id'], (string) $customer['email']);
     }
 
     /** @return array{status: int, error: string, reply: string} */
     private static function loginRequired(): array
     {
         return ['status' => 401, 'error' => 'login_required', 'reply' => self::LOGIN_REQUIRED_REPLY];
-    }
-
-    /** @return array{status: int, session_id: string, reply: string} */
-    private function reply(ChatSession $session, string $text, int $status = 200): array
-    {
-        return ['status' => $status, 'session_id' => $session->id, 'reply' => $text];
     }
 }

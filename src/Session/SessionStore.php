@@ -10,4 +10,12 @@ interface SessionStore
     public function load(?string $id): ChatSession;
 
     public function save(ChatSession $session): void;
+
+    /**
+     * Summaries (see ChatSession::summary()) of one customer's conversations,
+     * newest first. Only conversations with at least one message.
+     *
+     * @return list<array{id: string, title: string, updatedAt: int, messageCount: int, ownerKey: string}>
+     */
+    public function findByOwner(string $ownerKey, int $limit): array;
 }

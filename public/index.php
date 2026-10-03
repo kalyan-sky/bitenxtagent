@@ -15,6 +15,12 @@ $config = Config::fromEnvironment(dirname(__DIR__) . '/.env');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+// Local `php -S` only: let the built-in server serve static pages (demo.html).
+// In the container, Apache serves them before PHP runs.
+if (PHP_SAPI === 'cli-server' && preg_match('#^/[\w-]+\.html$#', (string) $path) && is_file(__DIR__ . $path)) {
+    return false;
+}
+
 // --- CORS: only the configured frontends (and this service's own demo page) may call the API ---
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 $originAllowed = in_array($origin, $config->allowedOrigins, true)
@@ -22,7 +28,7 @@ $originAllowed = in_array($origin, $config->allowedOrigins, true)
 if ($origin !== '' && $originAllowed) {
     header('Access-Control-Allow-Origin: ' . $origin);
     header('Vary: Origin');
-    header('Access-Control-Allow-Methods: POST, OPTIONS');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
     header('Access-Control-Allow-Headers: Content-Type, Authorization');
     header('Access-Control-Max-Age: 600');
 }
@@ -49,24 +55,16 @@ if ($path === '/widget.js') {
     readfile(__DIR__ . '/widget.js');
     exit;
 }
-if ($path !== '/chat' || $method !== 'POST') {
+$routes = [
+    'POST /chat' => 'chat',
+    'GET /chat/history' => 'history',
+];
+$route = $routes[$method . ' ' . $path] ?? null;
+if ($route === null) {
     $respond(404, ['error' => 'not_found']);
 }
 if ($origin !== '' && !$originAllowed) {
     $respond(403, ['error' => 'origin_not_allowed']);
-}
-
-$body = json_decode((string) file_get_contents('php://input', length: 16384), true);
-if (!is_array($body) || !is_string($body['message'] ?? null)) {
-    $respond(400, ['error' => 'message_required']);
-}
-
-// Chat is for logged-in Pro customers only: the Pro frontend forwards the
-// customer's Magento token, and requests without a valid one get 401. The
-// token is only used for this request and is never stored or sent to the model.
-$token = null;
-if (preg_match('/^Bearer\s+([A-Za-z0-9._\-]{10,2048})$/', $_SERVER['HTTP_AUTHORIZATION'] ?? '', $m)) {
-    $token = $m[1];
 }
 
 // Behind Cloud Run (and any load balancer) REMOTE_ADDR is the proxy, not the
@@ -78,13 +76,28 @@ if ($config->trustedProxyHops > 0 && !empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
     $clientIp = $hops[count($hops) - $config->trustedProxyHops] ?? $clientIp;
 }
 
+// Chat is for logged-in Pro customers only: the Pro frontend forwards the
+// customer's Magento token, and requests without a valid one get 401. The
+// token is only used for this request and is never stored or sent to the model.
+$token = null;
+if (preg_match('/^Bearer\s+([A-Za-z0-9._\-]{10,2048})$/', $_SERVER['HTTP_AUTHORIZATION'] ?? '', $m)) {
+    $token = $m[1];
+}
+
+
 try {
-    $result = App::chatService($config)->handle(
-        is_string($body['session_id'] ?? null) ? $body['session_id'] : null,
-        $body['message'],
-        $token,
-        $clientIp,
-    );
+    $chat = App::chatService($config);
+
+    if ($route === 'chat') {
+        $body = json_decode((string) file_get_contents('php://input', length: 16384), true);
+        if (!is_array($body) || !is_string($body['message'] ?? null)) {
+            $respond(400, ['error' => 'message_required']);
+        }
+        $result = $chat->handle($body['message'], $token, $clientIp);
+    } else {
+        $result = $chat->history($token, $clientIp);
+    }
+
     $status = $result['status'];
     unset($result['status']);
     $respond($status, $result);

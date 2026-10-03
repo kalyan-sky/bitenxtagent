@@ -7,6 +7,7 @@ namespace Bitenxt\SupportAgent\Session;
 /**
  * File-backed session store (one JSON file per session) for local development
  * and single-server installs. On Cloud Run use FirestoreSessionStore.
+ * $ttlSeconds is how long a conversation is kept after its last message.
  */
 final class FileSessionStore implements SessionStore
 {
@@ -42,6 +43,27 @@ final class FileSessionStore implements SessionStore
         file_put_contents($tmp, json_encode($session->toArray(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
         chmod($tmp, 0600);
         rename($tmp, $path);
+    }
+
+    public function findByOwner(string $ownerKey, int $limit): array
+    {
+        $found = [];
+        foreach (glob($this->directory . '/*.json') ?: [] as $path) {
+            if (filemtime($path) <= time() - $this->ttlSeconds) {
+                continue;
+            }
+            $data = json_decode((string) file_get_contents($path), true);
+            if (!is_array($data)) {
+                continue;
+            }
+            $summary = ChatSession::fromArray($data)->summary();
+            if ($summary['ownerKey'] === $ownerKey && $summary['messageCount'] > 0) {
+                $found[] = $summary;
+            }
+        }
+        usort($found, static fn ($a, $b) => $b['updatedAt'] <=> $a['updatedAt']);
+
+        return array_slice($found, 0, $limit);
     }
 
     private function path(string $id): string

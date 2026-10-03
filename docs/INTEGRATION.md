@@ -75,8 +75,10 @@ Alternatively, give the widget a function it can call: `BitenxtChat.init({ getTo
 |---|---|
 | Not logged in | No chat button |
 | Logs in | Chat button appears within about 2 seconds, with no page reload needed |
-| Logs out | Chat closes and the conversation is cleared |
-| Another user logs in on the same browser | Starts a fresh, empty conversation |
+| Opens the chat | Their earlier messages are shown (last 90 days), with date dividers, like Amazon's chat |
+| Refreshes, opens another tab or another device | Same thread, nothing lost |
+| Logs out | Chat closes and disappears |
+| Another user logs in on the same browser | Sees only their own thread |
 | Token expired or revoked | Next message: "Please log in to your BiteNXT Pro account to use support chat." |
 
 ## 4. Check it
@@ -98,12 +100,21 @@ POST https://YOUR-SERVICE-xxxx.a.run.app/chat
 Authorization: Bearer <customer token>
 Content-Type: application/json
 
-{"session_id": null, "message": "Where is order 000001234?"}
+{"message": "Where is order 000001234?"}
 ```
+
+```http
+GET https://YOUR-SERVICE-xxxx.a.run.app/chat/history
+Authorization: Bearer <customer token>
+```
+
+The server finds the customer's thread from the token, so there is no conversation ID to keep track of.
 
 | Status | Body | Meaning |
 |---|---|---|
-| 200 | `{"session_id": "…", "reply": "…"}` | Send `session_id` back with the next message to continue the conversation |
+| 200 | `{"reply": "…", "at": 1791000000}` | Reply to show (`at` = Unix time) |
+| 200 (history) | `{"messages": [{"role": "user" or "assistant", "text": "…", "at": 1791000000}, …]}` | The customer's thread, oldest first (up to 200 messages) |
+| 400 | `{"error": "invalid_message", "reply": "…"}` | Empty or too-long message |
 | 401 | `{"error": "login_required", "reply": "…"}` | Missing, invalid or expired token |
 | 429 | `{"error": "rate_limited", "reply": "…"}` | Too many messages; wait a minute |
 | 503 | `{"error": "unavailable", "reply": "…"}` | Magento couldn't verify the token (e.g. VM down) |

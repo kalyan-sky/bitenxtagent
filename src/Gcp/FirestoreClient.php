@@ -52,6 +52,35 @@ class FirestoreClient
     }
 
     /**
+     * Documents in a collection where $field equals $value, returning only
+     * the $select fields. Keyed by document ID.
+     *
+     * @param array<string, mixed> $value Firestore-typed value, e.g. ['stringValue' => 'x']
+     * @param list<string> $select
+     * @return array<string, array<string, mixed>>
+     */
+    public function query(string $collection, string $field, array $value, array $select, int $limit): array
+    {
+        [$status, $body] = $this->request('POST', $this->documentsPath . ':runQuery', ['structuredQuery' => [
+            'from' => [['collectionId' => $collection]],
+            'where' => ['fieldFilter' => ['field' => ['fieldPath' => $field], 'op' => 'EQUAL', 'value' => $value]],
+            'select' => ['fields' => array_map(static fn ($f) => ['fieldPath' => $f], $select)],
+            'limit' => $limit,
+        ]]);
+        $this->assertOk($status, $body);
+
+        $documents = [];
+        foreach ($body as $row) {
+            if (isset($row['document']['name'])) {
+                $id = substr($row['document']['name'], strrpos($row['document']['name'], '/') + 1);
+                $documents[$id] = $row['document']['fields'] ?? [];
+            }
+        }
+
+        return $documents;
+    }
+
+    /**
      * Atomically adds 1 to the `count` field of each document (creating it if
      * needed) and sets its `expireAt`. Returns the new counts, in order.
      *

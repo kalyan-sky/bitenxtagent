@@ -29,10 +29,13 @@ echo "==> Firestore (sessions and rate limits)"
 if ! gcloud firestore databases describe --database='(default)' >/dev/null 2>&1; then
   gcloud firestore databases create --database='(default)' --location="$REGION" --type=firestore-native
 fi
-# Old chats and counters are deleted automatically via their expireAt field.
+# Chat history and counters are deleted automatically via their expireAt field
+# (history: HISTORY_RETENTION_DAYS after the last message).
 for group in chat_sessions chat_ratelimits; do
   gcloud firestore fields ttls update expireAt --collection-group="$group" --enable-ttl --async --quiet >/dev/null || true
 done
+# The full conversation JSON is never searched, so don't index it (saves cost).
+gcloud firestore indexes fields update data --collection-group=chat_sessions --disable-indexes --async --quiet >/dev/null || true
 
 echo "==> Service account (least privilege: Firestore + this one secret)"
 if ! gcloud iam service-accounts describe "$SA" >/dev/null 2>&1; then
@@ -69,7 +72,7 @@ cat <<MSG
 Deployed: $URL
   Health check : $URL/health
   Test page    : $URL/demo.html
-  Chat API     : POST $URL/chat
+  Chat API     : POST $URL/chat, GET $URL/chat/history
 
 Add the widget to the Pro frontend (any page, before </body>):
 

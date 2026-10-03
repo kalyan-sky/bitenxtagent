@@ -27,6 +27,19 @@ final class InMemoryFirestore extends FirestoreClient
         $this->docs["$collection/$id"] = $fields;
     }
 
+    public function query(string $collection, string $field, array $value, array $select, int $limit): array
+    {
+        $found = [];
+        foreach ($this->docs as $key => $fields) {
+            [$col, $id] = explode('/', $key, 2);
+            if ($col === $collection && isset($fields[$field]) && $fields[$field] == $value) {
+                $found[$id] = array_intersect_key($fields, array_flip($select));
+            }
+        }
+
+        return array_slice($found, 0, $limit, true);
+    }
+
     public function increment(array $counters): array
     {
         $counts = [];

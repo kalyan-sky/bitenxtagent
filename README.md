@@ -31,7 +31,7 @@ The protection is built into the code, so it holds even if someone talks the mod
 | System-prompt extraction | The prompt carries a random canary marker. If a reply contains it, the reply is blocked. | `App::canary`, `OutputGuard` |
 | Prompt injection | The input guard strips invisible/control characters and flags injection attempts in the log. The system prompt says its rules override anything in the conversation. The structural limits above hold even if the model is fooled. | `Guardrails/InputGuard.php`, `Agent/SystemPrompt.php` |
 | Anonymous use | Every message must carry a valid Magento customer token, checked with Magento first. Without one the request is refused (401) before any session is loaded or Claude is called. | `ChatService::handle` |
-| Session hijacking | A session belongs to the customer who started it. A request for another customer gets a fresh session, and one without a login gets 401. Neither sees the earlier history. | `ChatService::bindIdentity` |
+| Reading someone else's chat | The client never sends a conversation ID. The server finds the thread from the verified customer only, so there is no ID to guess or steal. | `ChatService::currentConversation` |
 | Contact details in replies | Emails, phone numbers and card numbers (Luhn-checked) are redacted unless they are the customer's own, your public support contacts, or IDs from the customer's own orders. | `OutputGuard::filter` |
 | Credentials | The Magento token is used per request and never stored or sent to Claude. The service holds no admin token. Logs pseudonymise customer IDs and contain no chat text. | `public/index.php`, `Support/Logger.php` |
 | Made-up policies | Policy answers must come from `search_help_articles`. With no match, the bot says so and offers a person. | `SystemPrompt`, `knowledge/` |
@@ -134,23 +134,38 @@ The frontend already has the customer's token from `generateCustomerTokenWithId`
 message (see the snippet in the Cloud Run section above). To build your own UI instead, call the API directly:
 
 ```http
-POST /chat
-Authorization: Bearer <customer's Magento token>      (required)
-Content-Type: application/json
+POST /chat                                   GET /chat/history
+Authorization: Bearer <customer token>       Authorization: Bearer <customer token>
+{"message": "Where is order 000001234?"}
 
-{"session_id": "<from the previous reply, or null>", "message": "Where is order 000001234?"}
+→ {"reply": "Order 000001234 shipped on …", "at": 1791000000}
+→ {"messages": [{"role": "user", "text": "…", "at": 1791000000}, {"role": "assistant", …}]}
 ```
 
-```json
-{"session_id": "…", "reply": "Order 000001234 shipped on …"}
-```
+The client never sends a conversation ID. The server works out the customer's thread from the verified token.
 
 **Chat is for logged-in Pro customers only.** A request without a valid Magento customer token gets
 `401 {"error": "login_required"}`, and Claude is never called. If Magento can't verify the token (for example,
-the VM is down), the response is `503`. The widget shows its chat button only while a token is present. It
-hides the chat and clears the conversation when the customer logs out or a different customer logs in. When a
-token expires it asks the customer to log in again. The same customer logging in again with a new token keeps
-their conversation.
+the VM is down), the response is `503`. The widget shows its chat button only while a token is present and hides it when the
+customer logs out. When a token expires, it asks the customer to log in again.
+
+### Chat history
+
+Chat history works like Amazon's customer-service chat:
+
+- **One continuous thread per customer.** Opening the chat shows earlier messages with date dividers ("Today
+  10:42", "Yesterday 15:03", "2 Oct, 09:10"). It's the same after a page refresh, in another tab and on another
+  device, because it belongs to the logged-in customer, not the browser.
+- **The bot starts fresh after a quiet spell.** After `CONVERSATION_IDLE_MINUTES` (default 30) without
+  messages, or after `MAX_TURNS_PER_CONVERSATION` messages, the next message starts a new conversation for
+  Claude. That keeps answers focused and cost predictable. The customer still sees the whole thread.
+- **History is kept `HISTORY_RETENTION_DAYS`** (default 90) after the last message, then Firestore deletes it
+  automatically.
+- **The thread shows exactly what the customer saw.** Redacted values stay redacted and blocked replies never
+  reappear. Claude's internal tool data is never shown.
+
+Chat history can contain patient-related details the customer typed, so treat Firestore as personal-data
+storage. Access is limited to the service account. Shorten `HISTORY_RETENTION_DAYS` if your data policy needs it.
 
 ### Add your help articles
 
@@ -187,8 +202,10 @@ See `.env.example`. Key settings:
 | `CLAUDE_MODEL` | `claude-opus-5-5` | |
 | `CLAUDE_EFFORT` | `low` | `low` suits support chat. Raise to `medium` if answers feel shallow. |
 | `MAX_MESSAGE_CHARS` | 2000 | |
-| `MAX_TURNS_PER_SESSION` | 40 | Caps conversation length and cost |
-| `RATE_LIMIT_PER_MINUTE` / `_PER_DAY` | 10 / 200 | Applied per IP, per session and per customer |
+| `HISTORY_RETENTION_DAYS` | 90 | How long a customer's chat history is kept after their last message |
+| `CONVERSATION_IDLE_MINUTES` | 30 | Quiet time after which the bot starts a fresh conversation (the thread is kept) |
+| `MAX_TURNS_PER_CONVERSATION` | 40 | Messages per conversation before the bot starts a fresh one |
+| `RATE_LIMIT_PER_MINUTE` / `_PER_DAY` | 10 / 200 | Applied per IP and per customer |
 
 Requests use server-side refusal fallbacks (`fallbacks: "default"`), so a false positive from a safety
 classifier on dental or medical wording is retried on a fallback model instead of failing. The system prompt
@@ -206,7 +223,7 @@ src/Chat/ChatService.php    Request pipeline and session/identity binding
 src/Agent/                  System prompt, tool definitions + execution, Claude loop
 src/Magento/                GraphQL client, fixed customer-scoped queries, field allow-listing
 src/Guardrails/             Input guard, output guard, rate limiters (file / Firestore)
-src/Session/                Session model; file store (local) and Firestore store (Cloud Run)
+src/Session/                Conversation model + transcript; file store (local) and Firestore store (Cloud Run)
 src/Gcp/FirestoreClient.php Minimal Firestore REST client (metadata-server auth)
 src/Knowledge/              Help-article search over knowledge/*.md
 tests/                      Offline tests with a fake Magento and a scripted Claude
