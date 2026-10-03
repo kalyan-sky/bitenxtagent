@@ -15,8 +15,6 @@ class HandoffNotifier
     public function __construct(
         private readonly string $file,
         private readonly string $webhookUrl = '',
-        /** e.g. https://bitenxt-support-agent-xxxx.a.run.app; enables a transcript link in the message */
-        private readonly string $staffBaseUrl = '',
     ) {
     }
 
@@ -24,9 +22,6 @@ class HandoffNotifier
     public function notify(array $handoff): bool
     {
         $handoff['ts'] = date(DATE_ATOM);
-        if ($this->staffBaseUrl !== '' && !empty($handoff['session_id'])) {
-            $handoff['transcript_url'] = rtrim($this->staffBaseUrl, '/') . '/staff.html#conversation=' . $handoff['session_id'];
-        }
         Logger::append($this->file, (string) json_encode(
             ['severity' => 'WARNING', 'message' => 'handoff', 'event' => 'handoff'] + $handoff,
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
@@ -37,13 +32,13 @@ class HandoffNotifier
         }
 
         $text = sprintf(
-            "Chat handoff requested (%s)\nCustomer: %s\nOrder: %s\nReason: %s\nSummary: %s\nTranscript: %s",
+            "Chat handoff requested (%s)\nCustomer: %s\nOrder: %s\nReason: %s\nSummary: %s\nSession: %s",
             $handoff['urgency'] ?? 'normal',
             $handoff['customer_email'] ?? 'unknown',
             $handoff['order_number'] ?? '-',
             $handoff['reason'] ?? '',
             $handoff['summary'] ?? '',
-            $handoff['transcript_url'] ?? ('session ' . ($handoff['session_id'] ?? '')),
+            $handoff['session_id'] ?? '',
         );
         $ch = curl_init($this->webhookUrl);
         curl_setopt_array($ch, [

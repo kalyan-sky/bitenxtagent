@@ -291,7 +291,7 @@ final class ChatServiceTest extends TestCase
         self::assertSame('escalated', $handoff['status']);
         $logged = json_decode(trim((string) file_get_contents($this->dir . '/handoffs.jsonl')), true);
         self::assertSame('ana@clinic-a.test', $logged['customer_email']);
-        self::assertSame('', $logged['order_number'], 'unverified order numbers are not forwarded to staff');
+        self::assertSame('', $logged['order_number'], 'unverified order numbers are not forwarded to the team');
     }
 
     public function testNoToolAcceptsAnIdentityChosenByTheModel(): void

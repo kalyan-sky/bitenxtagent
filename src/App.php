@@ -19,18 +19,13 @@ use Bitenxt\SupportAgent\Magento\GraphQLClient;
 use Bitenxt\SupportAgent\Magento\MagentoCustomerDataSource;
 use Bitenxt\SupportAgent\Session\FileSessionStore;
 use Bitenxt\SupportAgent\Session\FirestoreSessionStore;
-use Bitenxt\SupportAgent\Staff\StaffService;
 use Bitenxt\SupportAgent\Support\HandoffNotifier;
 use Bitenxt\SupportAgent\Support\Logger;
 
 /** Wires the production object graph from Config. */
 final class App
 {
-    /**
-     * @param string $publicBaseUrl this service's own URL, used for transcript links in handoffs
-     * @return array{0: ChatService, 1: StaffService}
-     */
-    public static function services(Config $config, string $publicBaseUrl = ''): array
+    public static function chatService(Config $config): ChatService
     {
         $storage = $config->storageDir;
         $canary = self::canary($config);
@@ -51,9 +46,7 @@ final class App
             new AnthropicClaudeGateway(new Client(apiKey: $config->anthropicApiKey), $config->model, $config->effort),
             SystemPrompt::build($config->storeName, $config->supportEmail, $config->supportPhone, $canary),
         );
-        $staff = new StaffService($sessions, $rateLimiter, $logger, $config->staffAccessKey);
-
-        $chat = new ChatService(
+        return new ChatService(
             sessions: $sessions,
             rateLimiter: $rateLimiter,
             inputGuard: new InputGuard($config->maxMessageChars),
@@ -61,17 +54,11 @@ final class App
             agent: $agent,
             magento: $magento,
             knowledge: new KnowledgeBase(dirname(__DIR__) . '/knowledge'),
-            handoff: new HandoffNotifier(
-                $onCloud ? 'php://stderr' : $storage . '/handoffs.jsonl',
-                $config->handoffWebhookUrl,
-                $staff->enabled() ? $publicBaseUrl : '',
-            ),
+            handoff: new HandoffNotifier($onCloud ? 'php://stderr' : $storage . '/handoffs.jsonl', $config->handoffWebhookUrl),
             logger: $logger,
             maxTurnsPerConversation: $config->maxTurnsPerConversation,
             conversationIdleSeconds: $config->conversationIdleSeconds,
         );
-
-        return [$chat, $staff];
     }
 
     /**

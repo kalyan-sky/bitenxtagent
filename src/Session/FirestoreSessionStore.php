@@ -49,29 +49,23 @@ final class FirestoreSessionStore implements SessionStore
             'data' => ['stringValue' => json_encode($session->toArray(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE)],
             'expireAt' => FirestoreClient::timestamp(time() + $this->ttlSeconds),
             'ownerKey' => ['stringValue' => $summary['ownerKey']],
-            'customerEmail' => ['stringValue' => $summary['customerEmail']],
-            'escalated' => ['booleanValue' => $summary['escalated']],
             'title' => ['stringValue' => $summary['title']],
             'updatedAt' => ['integerValue' => (string) $summary['updatedAt']],
             'messageCount' => ['integerValue' => (string) $summary['messageCount']],
         ]);
     }
 
-    public function find(string $field, string|bool $value, int $limit): array
+    public function findByOwner(string $ownerKey, int $limit): array
     {
-        if (!in_array($field, self::FIND_FIELDS, true)) {
-            throw new \InvalidArgumentException('Cannot search sessions by ' . $field);
-        }
-
         // Equality filter only, so Firestore's automatic single-field indexes
         // are enough (no composite index to create). Newest-first sorting is
         // done here; 300 is far more conversations than one customer has in
         // the retention window.
         $rows = $this->firestore->query(
             $this->collection,
-            $field,
-            is_bool($value) ? ['booleanValue' => $value] : ['stringValue' => $value],
-            ['ownerKey', 'customerEmail', 'escalated', 'title', 'updatedAt', 'messageCount', 'expireAt'],
+            'ownerKey',
+            ['stringValue' => $ownerKey],
+            ['ownerKey', 'title', 'updatedAt', 'messageCount', 'expireAt'],
             300,
         );
 
@@ -86,9 +80,7 @@ final class FirestoreSessionStore implements SessionStore
                 'title' => (string) ($fields['title']['stringValue'] ?? ''),
                 'updatedAt' => (int) ($fields['updatedAt']['integerValue'] ?? 0),
                 'messageCount' => (int) ($fields['messageCount']['integerValue'] ?? 0),
-                'escalated' => (bool) ($fields['escalated']['booleanValue'] ?? false),
                 'ownerKey' => (string) ($fields['ownerKey']['stringValue'] ?? ''),
-                'customerEmail' => (string) ($fields['customerEmail']['stringValue'] ?? ''),
             ];
         }
         usort($found, static fn ($a, $b) => $b['updatedAt'] <=> $a['updatedAt']);

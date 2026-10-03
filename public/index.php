@@ -15,8 +15,8 @@ $config = Config::fromEnvironment(dirname(__DIR__) . '/.env');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-// Local `php -S` only: let the built-in server serve static pages (demo.html,
-// staff.html). In the container, Apache serves them before PHP runs.
+// Local `php -S` only: let the built-in server serve static pages (demo.html).
+// In the container, Apache serves them before PHP runs.
 if (PHP_SAPI === 'cli-server' && preg_match('#^/[\w-]+\.html$#', (string) $path) && is_file(__DIR__ . $path)) {
     return false;
 }
@@ -58,19 +58,12 @@ if ($path === '/widget.js') {
 $routes = [
     'POST /chat' => 'chat',
     'GET /chat/history' => 'history',
-    'GET /staff/api/escalated' => 'staff_escalated',
-    'GET /staff/api/customer' => 'staff_customer',
-    'GET /staff/api/conversation' => 'staff_conversation',
 ];
 $route = $routes[$method . ' ' . $path] ?? null;
 if ($route === null) {
     $respond(404, ['error' => 'not_found']);
 }
-$isStaff = str_starts_with($route, 'staff_');
-$sameOrigin = $origin !== '' && preg_replace('#^https?://#', '', $origin) === ($_SERVER['HTTP_HOST'] ?? null);
-// Customer endpoints: allowed frontends only. Staff endpoints: only the staff
-// page served by this service (no other site can call them from a browser).
-if ($origin !== '' && ($isStaff ? !$sameOrigin : !$originAllowed)) {
+if ($origin !== '' && !$originAllowed) {
     $respond(403, ['error' => 'origin_not_allowed']);
 }
 
@@ -91,12 +84,9 @@ if (preg_match('/^Bearer\s+([A-Za-z0-9._\-]{10,2048})$/', $_SERVER['HTTP_AUTHORI
     $token = $m[1];
 }
 
-$scheme = ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'http' && $config->trustedProxyHops > 0 ? 'http' : 'https';
-$host = $_SERVER['HTTP_HOST'] ?? '';
-$publicBaseUrl = preg_match('/^[A-Za-z0-9.\-]+(:\d+)?$/', $host) ? $scheme . '://' . $host : '';
 
 try {
-    [$chat, $staff] = App::services($config, $publicBaseUrl);
+    $chat = App::chatService($config);
 
     if ($route === 'chat') {
         $body = json_decode((string) file_get_contents('php://input', length: 16384), true);
@@ -104,14 +94,8 @@ try {
             $respond(400, ['error' => 'message_required']);
         }
         $result = $chat->handle($body['message'], $token, $clientIp);
-    } elseif ($route === 'history') {
-        $result = $chat->history($token, $clientIp);
     } else {
-        $result = $staff->authorize($_SERVER['HTTP_X_STAFF_KEY'] ?? null, $clientIp) ?? match ($route) {
-            'staff_escalated' => $staff->escalated($clientIp),
-            'staff_customer' => $staff->customer((string) ($_GET['email'] ?? ''), $clientIp),
-            'staff_conversation' => $staff->conversation((string) ($_GET['id'] ?? ''), $clientIp),
-        };
+        $result = $chat->history($token, $clientIp);
     }
 
     $status = $result['status'];

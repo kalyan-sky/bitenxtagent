@@ -31,7 +31,7 @@ The protection is built into the code, so it holds even if someone talks the mod
 | System-prompt extraction | The prompt carries a random canary marker. If a reply contains it, the reply is blocked. | `App::canary`, `OutputGuard` |
 | Prompt injection | The input guard strips invisible/control characters and flags injection attempts in the log. The system prompt says its rules override anything in the conversation. The structural limits above hold even if the model is fooled. | `Guardrails/InputGuard.php`, `Agent/SystemPrompt.php` |
 | Anonymous use | Every message must carry a valid Magento customer token, checked with Magento first. Without one the request is refused (401) before any session is loaded or Claude is called. | `ChatService::handle` |
-| Reading someone else's chat | The client never sends a conversation ID. The server finds the thread from the verified customer only, so there is no ID to guess or steal. Staff access needs a separate secret key, and every view is audited. | `ChatService::currentConversation`, `Staff/StaffService.php` |
+| Reading someone else's chat | The client never sends a conversation ID. The server finds the thread from the verified customer only, so there is no ID to guess or steal. | `ChatService::currentConversation` |
 | Contact details in replies | Emails, phone numbers and card numbers (Luhn-checked) are redacted unless they are the customer's own, your public support contacts, or IDs from the customer's own orders. | `OutputGuard::filter` |
 | Credentials | The Magento token is used per request and never stored or sent to Claude. The service holds no admin token. Logs pseudonymise customer IDs and contain no chat text. | `public/index.php`, `Support/Logger.php` |
 | Made-up policies | Policy answers must come from `search_help_articles`. With no match, the bot says so and offers a person. | `SystemPrompt`, `knowledge/` |
@@ -163,11 +163,6 @@ Chat history works like Amazon's customer-service chat:
   automatically.
 - **The thread shows exactly what the customer saw.** Redacted values stay redacted and blocked replies never
   reappear. Claude's internal tool data is never shown.
-- **Staff transcripts:** the support team opens `/staff.html` with the staff access key. The deploy script
-  generates it in Secret Manager; read it with `gcloud secrets versions access latest --secret=support-staff-key`.
-  The page lists handed-off chats and finds all chats for a customer by email. Every handoff message (Slack,
-  Teams) links straight to that conversation. Every staff view is written to the audit log. Leave
-  `STAFF_ACCESS_KEY` unset to turn the page off.
 
 Chat history can contain patient-related details the customer typed, so treat Firestore as personal-data
 storage. Access is limited to the service account. Shorten `HISTORY_RETENTION_DAYS` if your data policy needs it.
@@ -210,7 +205,6 @@ See `.env.example`. Key settings:
 | `HISTORY_RETENTION_DAYS` | 90 | How long a customer's chat history is kept after their last message |
 | `CONVERSATION_IDLE_MINUTES` | 30 | Quiet time after which the bot starts a fresh conversation (the thread is kept) |
 | `MAX_TURNS_PER_CONVERSATION` | 40 | Messages per conversation before the bot starts a fresh one |
-| `STAFF_ACCESS_KEY` | (unset) | Enables `/staff.html`. Set from Secret Manager by the deploy script. |
 | `RATE_LIMIT_PER_MINUTE` / `_PER_DAY` | 10 / 200 | Applied per IP and per customer |
 
 Requests use server-side refusal fallbacks (`fallbacks: "default"`), so a false positive from a safety
@@ -223,7 +217,6 @@ and tool list are prompt-cached.
 public/index.php            HTTP entry: CORS, auth header, client IP, JSON in/out, no error output
 public/widget.js            Embeddable chat widget (renders text only, no HTML)
 public/demo.html            Test page served by the service
-public/staff.html           Transcript viewer for the support team (staff access key)
 Dockerfile, docker/         Cloud Run image (PHP 8.3 + Apache on $PORT)
 deploy/                     Cloud Run deploy script + environment template
 src/Chat/ChatService.php    Request pipeline and session/identity binding
@@ -231,7 +224,6 @@ src/Agent/                  System prompt, tool definitions + execution, Claude 
 src/Magento/                GraphQL client, fixed customer-scoped queries, field allow-listing
 src/Guardrails/             Input guard, output guard, rate limiters (file / Firestore)
 src/Session/                Conversation model + transcript; file store (local) and Firestore store (Cloud Run)
-src/Staff/                  Staff transcript access (key check, audit log)
 src/Gcp/FirestoreClient.php Minimal Firestore REST client (metadata-server auth)
 src/Knowledge/              Help-article search over knowledge/*.md
 tests/                      Offline tests with a fake Magento and a scripted Claude

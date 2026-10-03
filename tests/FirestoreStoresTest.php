@@ -63,9 +63,8 @@ final class FirestoreStoresTest extends TestCase
         $empty->customerId = '11';
         $store->save($empty);
 
-        $found = $store->find('ownerKey', 'id:11', 10);
+        $found = $store->findByOwner('id:11', 10);
         self::assertSame(['First', 'Second'], array_column($found, 'title'), 'newest first, other clinic and empty excluded');
-        self::assertSame(['ana@clinic-a.test'], array_values(array_unique(array_column($store->find('customerEmail', 'ana@clinic-a.test', 10), 'customerEmail'))));
     }
 
     public function testRateLimiterBlocksAfterThePerMinuteLimitAndKeysAreHashed(): void

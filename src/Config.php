@@ -42,8 +42,6 @@ final class Config
         public readonly int $trustedProxyHops = 0,
         /** a quiet spell longer than this starts a fresh conversation (the window keeps earlier messages) */
         public readonly int $conversationIdleSeconds = 1800,
-        /** enables the staff transcript page; long random secret, empty = disabled */
-        public readonly string $staffAccessKey = '',
     ) {
     }
 
@@ -81,7 +79,6 @@ final class Config
             promptCanary: $env('PROMPT_CANARY'),
             trustedProxyHops: (int) $env('TRUSTED_PROXY_HOPS', '0'),
             conversationIdleSeconds: 60 * (int) $env('CONVERSATION_IDLE_MINUTES', '30'),
-            staffAccessKey: $env('STAFF_ACCESS_KEY'),
         );
     }
 

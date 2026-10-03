@@ -142,7 +142,7 @@ final class ChatService
         $owner = self::ownerKey($customer);
 
         $messages = [];
-        foreach ($this->sessions->find('ownerKey', $owner, 50) as $summary) {
+        foreach ($this->sessions->findByOwner($owner, 50) as $summary) {
             $session = $this->sessions->load($summary['id']);
             if ($session->id !== $summary['id'] || $session->ownerKey() !== $owner) {
                 continue; // expired meanwhile, or not this customer's
@@ -193,7 +193,7 @@ final class ChatService
      */
     private function currentConversation(string $owner): ChatSession
     {
-        $latest = $this->sessions->find('ownerKey', $owner, 1)[0] ?? null;
+        $latest = $this->sessions->findByOwner($owner, 1)[0] ?? null;
         if ($latest !== null && $latest['updatedAt'] >= time() - $this->conversationIdleSeconds) {
             $session = $this->sessions->load($latest['id']);
             if ($session->id === $latest['id'] && $session->ownerKey() === $owner

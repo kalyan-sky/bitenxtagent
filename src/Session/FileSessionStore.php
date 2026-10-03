@@ -45,11 +45,8 @@ final class FileSessionStore implements SessionStore
         rename($tmp, $path);
     }
 
-    public function find(string $field, string|bool $value, int $limit): array
+    public function findByOwner(string $ownerKey, int $limit): array
     {
-        if (!in_array($field, self::FIND_FIELDS, true)) {
-            throw new \InvalidArgumentException('Cannot search sessions by ' . $field);
-        }
         $found = [];
         foreach (glob($this->directory . '/*.json') ?: [] as $path) {
             if (filemtime($path) <= time() - $this->ttlSeconds) {
@@ -60,7 +57,7 @@ final class FileSessionStore implements SessionStore
                 continue;
             }
             $summary = ChatSession::fromArray($data)->summary();
-            if ($summary[$field] === $value && $summary['messageCount'] > 0) {
+            if ($summary['ownerKey'] === $ownerKey && $summary['messageCount'] > 0) {
                 $found[] = $summary;
             }
         }

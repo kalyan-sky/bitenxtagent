@@ -12,7 +12,6 @@ set -euo pipefail
 : "${REGION:?Set REGION, e.g. asia-south1 or us-central1 (ideally near your Magento server)}"
 SERVICE="${SERVICE:-bitenxt-support-agent}"
 SECRET="${SECRET:-anthropic-api-key}"
-STAFF_SECRET="${STAFF_SECRET:-support-staff-key}"
 SA_NAME="${SA_NAME:-bitenxt-support-agent}"
 SA="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -54,20 +53,13 @@ fi
 gcloud secrets add-iam-policy-binding "$SECRET" --member="serviceAccount:$SA" \
   --role=roles/secretmanager.secretAccessor >/dev/null
 
-echo "==> Staff access key for the transcript page (generated once)"
-if ! gcloud secrets describe "$STAFF_SECRET" >/dev/null 2>&1; then
-  openssl rand -hex 24 | tr -d '\n' | gcloud secrets create "$STAFF_SECRET" --replication-policy=automatic --data-file=-
-fi
-gcloud secrets add-iam-policy-binding "$STAFF_SECRET" --member="serviceAccount:$SA" \
-  --role=roles/secretmanager.secretAccessor >/dev/null
-
 echo "==> Building and deploying (Cloud Build uses the Dockerfile)"
 gcloud run deploy "$SERVICE" \
   --source "$ROOT" \
   --region "$REGION" \
   --service-account "$SA" \
   --env-vars-file "$ENV_FILE" \
-  --set-secrets "ANTHROPIC_API_KEY=${SECRET}:latest,STAFF_ACCESS_KEY=${STAFF_SECRET}:latest" \
+  --set-secrets "ANTHROPIC_API_KEY=${SECRET}:latest" \
   --allow-unauthenticated \
   --port 8080 \
   --cpu 1 --memory 512Mi \
@@ -80,7 +72,6 @@ cat <<MSG
 Deployed: $URL
   Health check : $URL/health
   Test page    : $URL/demo.html
-  Staff page   : $URL/staff.html   (key: gcloud secrets versions access latest --secret=$STAFF_SECRET)
   Chat API     : POST $URL/chat, GET $URL/chat/history
 
 Add the widget to the Pro frontend (any page, before </body>):

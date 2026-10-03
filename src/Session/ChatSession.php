@@ -12,7 +12,7 @@ namespace Bitenxt\SupportAgent\Session;
  * Two histories are kept on purpose:
  * - $messages: what Claude sees (wire format, append-only, includes tool calls);
  * - $transcript: exactly what was shown to the customer, after the output
- *   guard. Chat history in the widget and the staff view is built only from
+ *   guard. Chat history in the widget is built only from
  *   this, so redacted values and blocked replies can never reappear.
  */
 final class ChatSession
@@ -91,11 +91,10 @@ final class ChatSession
     }
 
     /**
-     * The listing view of a conversation: what the past-chats list and staff
-     * list show, and what the Firestore store keeps as queryable fields.
+     * The listing view of a conversation, used to find a customer's
+     * conversations; the Firestore store keeps these as queryable fields.
      *
-     * @return array{id: string, title: string, updatedAt: int, messageCount: int, escalated: bool,
-     *               ownerKey: string, customerEmail: string}
+     * @return array{id: string, title: string, updatedAt: int, messageCount: int, ownerKey: string}
      */
     public function summary(): array
     {
@@ -104,9 +103,7 @@ final class ChatSession
             'title' => $this->title,
             'updatedAt' => $this->updatedAt,
             'messageCount' => count($this->transcript),
-            'escalated' => $this->escalated,
             'ownerKey' => $this->ownerKey(),
-            'customerEmail' => mb_strtolower($this->customerEmail),
         ];
     }
 
