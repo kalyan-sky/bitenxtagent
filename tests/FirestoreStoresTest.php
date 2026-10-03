@@ -47,6 +47,27 @@ final class FirestoreStoresTest extends TestCase
         self::assertTrue(ChatSession::isValidId($store->load(str_repeat('a', 48))->id), 'unknown');
     }
 
+    public function testFindListsACustomersConversationsNewestFirstWithoutLoadingThem(): void
+    {
+        $firestore = new InMemoryFirestore();
+        $store = new FirestoreSessionStore($firestore, 3600);
+        foreach (['11' => 'First', '22' => 'Other clinic', '11 ' => 'Second'] as $customer => $title) {
+            $session = ChatSession::start();
+            $session->customerId = trim((string) $customer);
+            $session->customerEmail = trim((string) $customer) === '11' ? 'Ana@Clinic-A.test' : 'bo@clinic-b.test';
+            $session->addTranscript('user', $title);
+            $store->save($session);
+            $firestore->docs['chat_sessions/' . $session->id]['updatedAt']['integerValue'] = (string) (time() - strlen($title));
+        }
+        $empty = ChatSession::start();
+        $empty->customerId = '11';
+        $store->save($empty);
+
+        $found = $store->find('ownerKey', 'id:11', 10);
+        self::assertSame(['First', 'Second'], array_column($found, 'title'), 'newest first, other clinic and empty excluded');
+        self::assertSame(['ana@clinic-a.test'], array_values(array_unique(array_column($store->find('customerEmail', 'ana@clinic-a.test', 10), 'customerEmail'))));
+    }
+
     public function testRateLimiterBlocksAfterThePerMinuteLimitAndKeysAreHashed(): void
     {
         $firestore = new InMemoryFirestore();

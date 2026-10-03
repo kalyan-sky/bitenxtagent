@@ -22,10 +22,12 @@ final class Config
         public readonly string $supportEmail,
         public readonly string $supportPhone,
         public readonly int $maxMessageChars,
-        public readonly int $maxTurnsPerSession,
+        /** user messages per conversation before the next message starts a fresh one */
+        public readonly int $maxTurnsPerConversation,
         public readonly int $rateLimitPerMinute,
         public readonly int $rateLimitPerDay,
-        public readonly int $sessionTtlSeconds,
+        /** how long chat history is kept after the last message */
+        public readonly int $historyRetentionSeconds,
         public readonly string $handoffWebhookUrl,
         public readonly string $storageDir,
         /** "file" (local dev, single server) or "firestore" (Cloud Run) */
@@ -38,6 +40,10 @@ final class Config
         public readonly string $promptCanary = '',
         /** proxies in front of the app that append to X-Forwarded-For (Cloud Run itself = 1) */
         public readonly int $trustedProxyHops = 0,
+        /** a quiet spell longer than this starts a fresh conversation (the window keeps earlier messages) */
+        public readonly int $conversationIdleSeconds = 1800,
+        /** enables the staff transcript page; long random secret, empty = disabled */
+        public readonly string $staffAccessKey = '',
     ) {
     }
 
@@ -61,10 +67,10 @@ final class Config
             supportEmail: $env('SUPPORT_EMAIL'),
             supportPhone: $env('SUPPORT_PHONE'),
             maxMessageChars: (int) $env('MAX_MESSAGE_CHARS', '2000'),
-            maxTurnsPerSession: (int) $env('MAX_TURNS_PER_SESSION', '40'),
+            maxTurnsPerConversation: (int) $env('MAX_TURNS_PER_CONVERSATION', $env('MAX_TURNS_PER_SESSION', '40')),
             rateLimitPerMinute: (int) $env('RATE_LIMIT_PER_MINUTE', '10'),
             rateLimitPerDay: (int) $env('RATE_LIMIT_PER_DAY', '200'),
-            sessionTtlSeconds: (int) $env('SESSION_TTL_SECONDS', '86400'),
+            historyRetentionSeconds: 86400 * (int) $env('HISTORY_RETENTION_DAYS', '90'),
             handoffWebhookUrl: $env('HANDOFF_WEBHOOK_URL'),
             storageDir: rtrim($env('STORAGE_DIR', dirname(__DIR__) . '/var'), '/'),
             storageBackend: $env('STORAGE_BACKEND', 'file'),
@@ -74,6 +80,8 @@ final class Config
             logTarget: $env('LOG_TARGET', 'file'),
             promptCanary: $env('PROMPT_CANARY'),
             trustedProxyHops: (int) $env('TRUSTED_PROXY_HOPS', '0'),
+            conversationIdleSeconds: 60 * (int) $env('CONVERSATION_IDLE_MINUTES', '30'),
+            staffAccessKey: $env('STAFF_ACCESS_KEY'),
         );
     }
 

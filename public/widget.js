@@ -2,8 +2,9 @@
  * BiteNXT support chat widget.
  *
  * Chat is for logged-in Pro customers only. The chat button appears only
- * while getToken() returns the customer's Magento token, and disappears (and
- * the conversation is cleared) when they log out or a different user logs in.
+ * while getToken() returns the customer's Magento token, and disappears when
+ * they log out. Each customer has one continuous thread kept on the server,
+ * so their messages are there after a refresh and on any device.
  *
  * The customer already receives a Bearer token from Magento when they log in
  * to Pro (generateCustomerTokenWithId). The widget sends that same token with
@@ -37,7 +38,6 @@
 (function () {
   'use strict';
 
-  var STORAGE_KEY = 'bitenxt_chat_session';
   var script = document.currentScript;
   var defaultApiUrl = script && script.src ? new URL('/chat', script.src).href : '/chat';
   var initialised = false;
@@ -77,6 +77,7 @@
       '.bnx-form textarea{flex:1;border:0;padding:12px;resize:none;font:inherit;outline:none}',
       '.bnx-form button{border:0;background:#0b6e8a;color:#fff;padding:0 16px;cursor:pointer;font-weight:600}',
       '.bnx-btn.ready{display:block}',
+      '.bnx-time{text-align:center;color:#6b7680;font-size:12px;margin:12px 0 4px}',
       '.bnx-form button:disabled{opacity:.5}'
     ].join('');
     document.head.appendChild(style);
@@ -99,44 +100,84 @@
     document.body.appendChild(panel);
     document.body.appendChild(button);
 
-    function add(text, who) {
+    var historyUrl = apiUrl.replace(/\/?$/, '') + '/history';
+    var lastAt = 0;
+    var historyLoadedFor = null;
+
+    function separatorLabel(at) {
+      var d = new Date(at * 1000);
+      var now = new Date();
+      var time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      var startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      if (d.getTime() >= startOfToday) return 'Today ' + time;
+      if (d.getTime() >= startOfToday - 86400000) return 'Yesterday ' + time;
+      return d.toLocaleDateString([], { day: 'numeric', month: 'short', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' }) + ', ' + time;
+    }
+
+    // Messages carry a time; a date/time divider is shown before the first
+    // message and whenever 30+ minutes passed, like Amazon's chat.
+    function add(text, who, at) {
+      at = at || Math.floor(Date.now() / 1000);
+      if (!lastAt || at - lastAt > 1800) {
+        log.appendChild(el('div', { 'class': 'bnx-time' }, separatorLabel(at)));
+      }
+      lastAt = at;
       var msg = el('div', { 'class': 'bnx-msg ' + (who === 'user' ? 'bnx-user' : 'bnx-bot') }, text);
       log.appendChild(msg);
       log.scrollTop = log.scrollHeight;
       return msg;
     }
 
-    function sessionId() {
-      try { return sessionStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
-    }
-
-    function saveSessionId(id) {
-      try { sessionStorage.setItem(STORAGE_KEY, id); } catch (e) { /* storage blocked */ }
-    }
-
-    function resetConversation() {
-      try { sessionStorage.removeItem(STORAGE_KEY); } catch (e) { /* storage blocked */ }
+    function clearLog() {
       log.textContent = '';
-      add(greeting, 'bot');
+      lastAt = 0;
     }
 
     function currentToken() {
       try { return getToken() || null; } catch (e) { return null; }
     }
 
-    // Show the chat only to logged-in users; start over when the user changes.
+    // The thread lives on the server, tied to the logged-in customer, so it
+    // is the same after a refresh, in another tab or on another device.
+    function loadHistory() {
+      var token = currentToken();
+      if (!token || historyLoadedFor === token) return;
+      historyLoadedFor = token;
+      clearLog();
+      log.appendChild(el('div', { 'class': 'bnx-time' }, 'Loading your messages…'));
+      send.disabled = true; // so a new message can't be wiped by the history arriving
+      fetch(historyUrl, { headers: { Authorization: 'Bearer ' + token } })
+        .then(function (r) { return r.json().then(function (data) { return { status: r.status, data: data }; }); })
+        .then(function (res) {
+          if (currentToken() !== token) return; // user changed meanwhile
+          clearLog();
+          var messages = res.status === 200 && res.data.messages ? res.data.messages : [];
+          messages.forEach(function (m) { add(m.text, m.role, m.at); });
+          if (!messages.length) add(greeting, 'bot');
+          if (res.status === 401) add(res.data.reply || 'Please log in again.', 'bot');
+        })
+        .catch(function () {
+          historyLoadedFor = null; // try again next time the chat is opened
+          clearLog();
+          add(greeting, 'bot');
+        })
+        .finally(function () { send.disabled = false; });
+    }
+
+    // Show the chat only to logged-in users; switch threads when the user changes.
     var knownToken = currentToken();
     function syncLogin() {
       var token = currentToken();
       if (token !== knownToken) {
         knownToken = token;
-        resetConversation();
+        historyLoadedFor = null;
+        clearLog();
+        if (token && panel.classList.contains('open')) loadHistory();
       }
       button.classList.toggle('ready', !!token);
       if (!token) panel.classList.remove('open');
     }
 
-    add(greeting, 'bot');
     syncLogin();
     setInterval(syncLogin, 2000);
     window.addEventListener('storage', syncLogin);
@@ -144,7 +185,10 @@
 
     button.addEventListener('click', function () {
       panel.classList.toggle('open');
-      if (panel.classList.contains('open')) input.focus();
+      if (panel.classList.contains('open')) {
+        loadHistory();
+        input.focus();
+      }
     });
     close.addEventListener('click', function () { panel.classList.remove('open'); });
     input.addEventListener('keydown', function (e) {
@@ -165,7 +209,7 @@
       fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ session_id: sessionId(), message: text })
+        body: JSON.stringify({ message: text })
       })
         .then(function (r) {
           return r.json().then(function (data) { return { status: r.status, data: data }; });
@@ -173,11 +217,9 @@
         .then(function (res) {
           if (res.status === 401) {
             // Token expired or revoked: Pro needs a fresh login.
-            try { sessionStorage.removeItem(STORAGE_KEY); } catch (err) { /* storage blocked */ }
             pending.textContent = res.data.reply || 'Your session has expired. Please log in again.';
             return;
           }
-          if (res.data.session_id) saveSessionId(res.data.session_id);
           pending.textContent = res.data.reply || 'Sorry, something went wrong. Please try again.';
         })
         .catch(function () {

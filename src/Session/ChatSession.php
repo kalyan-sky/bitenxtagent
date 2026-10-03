@@ -5,10 +5,15 @@ declare(strict_types=1);
 namespace Bitenxt\SupportAgent\Session;
 
 /**
- * Server-side conversation state. The customer's identity lives here, set
- * from a verified Magento token, never from anything typed in the chat.
- * The token itself is not stored: only its hash, to detect a different
- * user reusing the session ID.
+ * One conversation, stored server-side. The customer's identity lives here,
+ * set from a verified Magento token, never from anything typed in the chat.
+ * The token itself is not stored, only its hash.
+ *
+ * Two histories are kept on purpose:
+ * - $messages: what Claude sees (wire format, append-only, includes tool calls);
+ * - $transcript: exactly what was shown to the customer, after the output
+ *   guard. Chat history in the widget and the staff view is built only from
+ *   this, so redacted values and blocked replies can never reappear.
  */
 final class ChatSession
 {
@@ -17,6 +22,7 @@ final class ChatSession
      * @param list<string> $knownOrderNumbers order numbers already confirmed to belong to this customer
      * @param list<string> $safeValues identifiers (order/tracking numbers, SKUs) that came from this
      *                                 customer's own data and may be repeated back to them
+     * @param list<array{role: string, text: string, at: int}> $transcript what the customer saw
      */
     public function __construct(
         public readonly string $id,
@@ -32,6 +38,8 @@ final class ChatSession
         public bool $escalated = false,
         public int $createdAt = 0,
         public int $updatedAt = 0,
+        public array $transcript = [],
+        public string $title = '',
     ) {
     }
 
@@ -52,6 +60,54 @@ final class ChatSession
     public function isAuthenticated(): bool
     {
         return $this->customerId !== '' || $this->customerEmail !== '';
+    }
+
+    /**
+     * Stable identity of the customer who owns this conversation. A Magento
+     * customer can have many tokens over time; the conversation follows the
+     * customer, not the token.
+     */
+    public function ownerKey(): string
+    {
+        return self::ownerKeyFor($this->customerId, $this->customerEmail);
+    }
+
+    public static function ownerKeyFor(string $customerId, string $email): string
+    {
+        if ($customerId !== '') {
+            return 'id:' . $customerId;
+        }
+
+        return $email !== '' ? 'email:' . mb_strtolower($email) : '';
+    }
+
+    public function addTranscript(string $role, string $text): void
+    {
+        $this->transcript[] = ['role' => $role, 'text' => $text, 'at' => time()];
+        if ($this->title === '' && $role === 'user') {
+            $title = trim(preg_replace('/\s+/u', ' ', $text) ?? '');
+            $this->title = mb_strlen($title) > 60 ? mb_substr($title, 0, 57) . '…' : $title;
+        }
+    }
+
+    /**
+     * The listing view of a conversation: what the past-chats list and staff
+     * list show, and what the Firestore store keeps as queryable fields.
+     *
+     * @return array{id: string, title: string, updatedAt: int, messageCount: int, escalated: bool,
+     *               ownerKey: string, customerEmail: string}
+     */
+    public function summary(): array
+    {
+        return [
+            'id' => $this->id,
+            'title' => $this->title,
+            'updatedAt' => $this->updatedAt,
+            'messageCount' => count($this->transcript),
+            'escalated' => $this->escalated,
+            'ownerKey' => $this->ownerKey(),
+            'customerEmail' => mb_strtolower($this->customerEmail),
+        ];
     }
 
     public function rememberOrder(string $orderNumber): void
@@ -93,6 +149,8 @@ final class ChatSession
             escalated: (bool) ($data['escalated'] ?? false),
             createdAt: (int) ($data['createdAt'] ?? 0),
             updatedAt: (int) ($data['updatedAt'] ?? 0),
+            transcript: array_values($data['transcript'] ?? []),
+            title: (string) ($data['title'] ?? ''),
         );
     }
 

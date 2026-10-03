@@ -19,13 +19,18 @@ use Bitenxt\SupportAgent\Magento\GraphQLClient;
 use Bitenxt\SupportAgent\Magento\MagentoCustomerDataSource;
 use Bitenxt\SupportAgent\Session\FileSessionStore;
 use Bitenxt\SupportAgent\Session\FirestoreSessionStore;
+use Bitenxt\SupportAgent\Staff\StaffService;
 use Bitenxt\SupportAgent\Support\HandoffNotifier;
 use Bitenxt\SupportAgent\Support\Logger;
 
 /** Wires the production object graph from Config. */
 final class App
 {
-    public static function chatService(Config $config): ChatService
+    /**
+     * @param string $publicBaseUrl this service's own URL, used for transcript links in handoffs
+     * @return array{0: ChatService, 1: StaffService}
+     */
+    public static function services(Config $config, string $publicBaseUrl = ''): array
     {
         $storage = $config->storageDir;
         $canary = self::canary($config);
@@ -35,10 +40,10 @@ final class App
 
         if ($config->storageBackend === 'firestore') {
             $firestore = new FirestoreClient($config->gcpProject, $config->firestoreDatabase, $config->firestoreEmulatorHost);
-            $sessions = new FirestoreSessionStore($firestore, $config->sessionTtlSeconds);
+            $sessions = new FirestoreSessionStore($firestore, $config->historyRetentionSeconds);
             $rateLimiter = new FirestoreRateLimiter($firestore, $config->rateLimitPerMinute, $config->rateLimitPerDay);
         } else {
-            $sessions = new FileSessionStore($storage . '/sessions', $config->sessionTtlSeconds);
+            $sessions = new FileSessionStore($storage . '/sessions', $config->historyRetentionSeconds);
             $rateLimiter = new FileRateLimiter($storage . '/ratelimit', $config->rateLimitPerMinute, $config->rateLimitPerDay);
         }
 
@@ -46,8 +51,9 @@ final class App
             new AnthropicClaudeGateway(new Client(apiKey: $config->anthropicApiKey), $config->model, $config->effort),
             SystemPrompt::build($config->storeName, $config->supportEmail, $config->supportPhone, $canary),
         );
+        $staff = new StaffService($sessions, $rateLimiter, $logger, $config->staffAccessKey);
 
-        return new ChatService(
+        $chat = new ChatService(
             sessions: $sessions,
             rateLimiter: $rateLimiter,
             inputGuard: new InputGuard($config->maxMessageChars),
@@ -55,10 +61,17 @@ final class App
             agent: $agent,
             magento: $magento,
             knowledge: new KnowledgeBase(dirname(__DIR__) . '/knowledge'),
-            handoff: new HandoffNotifier($onCloud ? 'php://stderr' : $storage . '/handoffs.jsonl', $config->handoffWebhookUrl),
+            handoff: new HandoffNotifier(
+                $onCloud ? 'php://stderr' : $storage . '/handoffs.jsonl',
+                $config->handoffWebhookUrl,
+                $staff->enabled() ? $publicBaseUrl : '',
+            ),
             logger: $logger,
-            maxTurnsPerSession: $config->maxTurnsPerSession,
+            maxTurnsPerConversation: $config->maxTurnsPerConversation,
+            conversationIdleSeconds: $config->conversationIdleSeconds,
         );
+
+        return [$chat, $staff];
     }
 
     /**
