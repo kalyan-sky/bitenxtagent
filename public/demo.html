@@ -14,12 +14,12 @@
 </head>
 <body>
   <h1>Support chat test page</h1>
-  <p>Use the chat button in the corner. Without a token you are a guest (general and product questions only).</p>
-  <p>To test order questions, paste a <strong>UAT</strong> customer token from <code>generateCustomerTokenWithId</code>.
-     It is kept only in this browser's localStorage.</p>
+  <p>Chat is for logged-in Pro customers only, so the chat button appears only once a token is set.</p>
+  <p>Paste a <strong>UAT</strong> customer token from <code>generateCustomerTokenWithId</code> to act as that
+     customer. It is kept only in this browser's localStorage. "Log out" removes it and the chat disappears.</p>
   <input id="token" type="password" placeholder="Magento customer token (optional)" autocomplete="off">
   <button id="save" type="button">Use this token</button>
-  <button id="clear" type="button">Sign out</button>
+  <button id="clear" type="button">Log out</button>
   <p id="state"></p>
 
   <script>
@@ -27,7 +27,7 @@
     function show() {
       var has = false;
       try { has = !!localStorage.getItem(KEY); } catch (e) {}
-      document.getElementById('state').textContent = has ? 'Signed in with a token.' : 'Guest.';
+      document.getElementById('state').textContent = has ? 'Logged in: the chat button is in the corner.' : 'Logged out: no chat.';
     }
     document.getElementById('save').onclick = function () {
       try { localStorage.setItem(KEY, document.getElementById('token').value.trim()); sessionStorage.clear(); } catch (e) {}

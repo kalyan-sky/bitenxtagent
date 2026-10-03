@@ -30,7 +30,8 @@ The protection is built into the code, so it holds even if someone talks the mod
 | Exposing code or internals | The model never writes GraphQL or SQL; queries are hard-coded. Every reply is scanned for code, SQL/GraphQL, stack traces, server paths, PHP namespaces and API keys. A hit replaces the whole reply and removes that turn from history. Magento/Claude errors are logged, never shown. | `Guardrails/OutputGuard.php`, `ChatService.php` |
 | System-prompt extraction | The prompt carries a random canary marker. If a reply contains it, the reply is blocked. | `App::canary`, `OutputGuard` |
 | Prompt injection | The input guard strips invisible/control characters and flags injection attempts in the log. The system prompt says its rules override anything in the conversation. The structural limits above hold even if the model is fooled. | `Guardrails/InputGuard.php`, `Agent/SystemPrompt.php` |
-| Session hijacking | A session is bound to a hash of the token that started it. A request with a different token, or none, gets a fresh session and never sees earlier history. | `ChatService::bindIdentity` |
+| Anonymous use | Every message must carry a valid Magento customer token, checked with Magento first. Without one the request is refused (401) before any session is loaded or Claude is called. | `ChatService::handle` |
+| Session hijacking | A session belongs to the customer who started it. A request for another customer gets a fresh session, and one without a login gets 401. Neither sees the earlier history. | `ChatService::bindIdentity` |
 | Contact details in replies | Emails, phone numbers and card numbers (Luhn-checked) are redacted unless they are the customer's own, your public support contacts, or IDs from the customer's own orders. | `OutputGuard::filter` |
 | Credentials | The Magento token is used per request and never stored or sent to Claude. The service holds no admin token. Logs pseudonymise customer IDs and contain no chat text. | `public/index.php`, `Support/Logger.php` |
 | Made-up policies | Policy answers must come from `search_help_articles`. With no match, the bot says so and offers a person. | `SystemPrompt`, `knowledge/` |
@@ -80,7 +81,7 @@ When it finishes you have, for example, `https://bitenxt-support-agent-abc123-el
 |---|---|
 | `/widget.js` | The chat widget to embed in the Pro frontend |
 | `/chat` | The chat API (`POST`) the widget calls |
-| `/demo.html` | Test page: chat as a guest, or paste a UAT customer token to test order questions |
+| `/demo.html` | Test page: paste a UAT customer token to chat as that customer |
 | `/health` | Health check |
 
 Then add one line to the Pro frontend (UAT: `https://uat-pro.bitenxt.com`, which is already in
@@ -133,18 +134,22 @@ message (see the snippet in the Cloud Run section above). To build your own UI i
 
 ```http
 POST /chat
-Authorization: Bearer <customer's Magento token>      (omit for guests)
+Authorization: Bearer <customer's Magento token>      (required)
 Content-Type: application/json
 
 {"session_id": "<from the previous reply, or null>", "message": "Where is order 000001234?"}
 ```
 
 ```json
-{"session_id": "…", "reply": "Order 000001234 shipped on …", "signed_in": true}
+{"session_id": "…", "reply": "Order 000001234 shipped on …"}
 ```
 
-Guests can ask general and product questions. Order questions ask them to sign in first: Magento 2.4.6 has
-no `guestOrder` query, and identifying someone by order number alone isn't safe.
+**Chat is for logged-in Pro customers only.** A request without a valid Magento customer token gets
+`401 {"error": "login_required"}`, and Claude is never called. If Magento can't verify the token (for example,
+the VM is down), the response is `503`. The widget shows its chat button only while a token is present. It
+hides the chat and clears the conversation when the customer logs out or a different customer logs in. When a
+token expires it asks the customer to log in again. The same customer logging in again with a new token keeps
+their conversation.
 
 ### Add your help articles
 

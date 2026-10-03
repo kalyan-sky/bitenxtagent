@@ -1,9 +1,13 @@
 /*
  * BiteNXT support chat widget.
  *
+ * Chat is for logged-in Pro customers only. The chat button appears only
+ * while getToken() returns the customer's Magento token, and disappears (and
+ * the conversation is cleared) when they log out or a different user logs in.
+ *
  * Simplest: one tag. The API address is taken from where this file was
  * loaded (e.g. your Cloud Run URL), and the customer's Magento token is read
- * from localStorage under the key you name (omit it for guest-only chat).
+ * from localStorage under the key you name.
  *
  *   <script src="https://YOUR-SERVICE-xxxx.a.run.app/widget.js"
  *           data-auto-init data-token-key="customerToken"></script>
@@ -14,7 +18,7 @@
  *   <script>
  *     BitenxtChat.init({
  *       // apiUrl defaults to <script origin>/chat
- *       getToken: () => store.getState().auth.token, // Magento customer token, or null
+ *       getToken: () => store.getState().auth.token, // Magento customer token, or null when logged out
  *     });
  *   </script>
  *
@@ -44,11 +48,11 @@
     var getToken = options.getToken || function () { return null; };
     var title = options.title || 'BiteNXT Support';
     var greeting = options.greeting ||
-      'Hi! I can help with order status, tracking, products and account questions. How can I help?';
+      'Hi! I can help with your order status, tracking, products and account questions. How can I help?';
 
     var style = el('style');
     style.textContent = [
-      '.bnx-btn{position:fixed;right:20px;bottom:20px;z-index:99999;border:0;border-radius:28px;padding:14px 20px;',
+      '.bnx-btn{display:none;position:fixed;right:20px;bottom:20px;z-index:99999;border:0;border-radius:28px;padding:14px 20px;',
       'background:#0b6e8a;color:#fff;font:600 15px system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2)}',
       '.bnx-panel{position:fixed;right:20px;bottom:84px;z-index:99999;width:360px;max-width:calc(100vw - 32px);height:520px;',
       'max-height:calc(100vh - 120px);display:none;flex-direction:column;background:#fff;border-radius:12px;',
@@ -63,6 +67,7 @@
       '.bnx-form{display:flex;border-top:1px solid #e1e5e8}',
       '.bnx-form textarea{flex:1;border:0;padding:12px;resize:none;font:inherit;outline:none}',
       '.bnx-form button{border:0;background:#0b6e8a;color:#fff;padding:0 16px;cursor:pointer;font-weight:600}',
+      '.bnx-btn.ready{display:block}',
       '.bnx-form button:disabled{opacity:.5}'
     ].join('');
     document.head.appendChild(style);
@@ -100,7 +105,33 @@
       try { sessionStorage.setItem(STORAGE_KEY, id); } catch (e) { /* storage blocked */ }
     }
 
+    function resetConversation() {
+      try { sessionStorage.removeItem(STORAGE_KEY); } catch (e) { /* storage blocked */ }
+      log.textContent = '';
+      add(greeting, 'bot');
+    }
+
+    function currentToken() {
+      try { return getToken() || null; } catch (e) { return null; }
+    }
+
+    // Show the chat only to logged-in users; start over when the user changes.
+    var knownToken = currentToken();
+    function syncLogin() {
+      var token = currentToken();
+      if (token !== knownToken) {
+        knownToken = token;
+        resetConversation();
+      }
+      button.classList.toggle('ready', !!token);
+      if (!token) panel.classList.remove('open');
+    }
+
     add(greeting, 'bot');
+    syncLogin();
+    setInterval(syncLogin, 2000);
+    window.addEventListener('storage', syncLogin);
+    window.addEventListener('focus', syncLogin);
 
     button.addEventListener('click', function () {
       panel.classList.toggle('open');
@@ -114,25 +145,31 @@
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var text = input.value.trim();
+      var token = currentToken();
       if (!text || send.disabled) return;
+      if (!token) { syncLogin(); return; }
       input.value = '';
       add(text, 'user');
       send.disabled = true;
       var pending = add('…', 'bot');
 
-      var headers = { 'Content-Type': 'application/json' };
-      var token = getToken();
-      if (token) headers.Authorization = 'Bearer ' + token;
-
       fetch(apiUrl, {
         method: 'POST',
-        headers: headers,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({ session_id: sessionId(), message: text })
       })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (data.session_id) saveSessionId(data.session_id);
-          pending.textContent = data.reply || 'Sorry, something went wrong. Please try again.';
+        .then(function (r) {
+          return r.json().then(function (data) { return { status: r.status, data: data }; });
+        })
+        .then(function (res) {
+          if (res.status === 401) {
+            // Token expired or revoked: Pro needs a fresh login.
+            try { sessionStorage.removeItem(STORAGE_KEY); } catch (err) { /* storage blocked */ }
+            pending.textContent = res.data.reply || 'Your session has expired. Please log in again.';
+            return;
+          }
+          if (res.data.session_id) saveSessionId(res.data.session_id);
+          pending.textContent = res.data.reply || 'Sorry, something went wrong. Please try again.';
         })
         .catch(function () {
           pending.textContent = 'Sorry, I could not reach support right now. Please try again.';
@@ -149,10 +186,13 @@
   if (script && script.hasAttribute('data-auto-init')) {
     var tokenKey = script.getAttribute('data-token-key');
     var start = function () {
+      if (!tokenKey) {
+        if (window.console) console.warn('BitenxtChat: data-token-key is required; chat is for logged-in users only.');
+        return;
+      }
       init({
         title: script.getAttribute('data-title') || undefined,
         getToken: function () {
-          if (!tokenKey) return null;
           try { return localStorage.getItem(tokenKey); } catch (e) { return null; }
         }
       });

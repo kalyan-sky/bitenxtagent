@@ -61,8 +61,9 @@ if (!is_array($body) || !is_string($body['message'] ?? null)) {
     $respond(400, ['error' => 'message_required']);
 }
 
-// The Pro frontend forwards the customer's Magento token; it is only used for
-// this request and is never stored or sent to the model.
+// Chat is for logged-in Pro customers only: the Pro frontend forwards the
+// customer's Magento token, and requests without a valid one get 401. The
+// token is only used for this request and is never stored or sent to the model.
 $token = null;
 if (preg_match('/^Bearer\s+([A-Za-z0-9._\-]{10,2048})$/', $_SERVER['HTTP_AUTHORIZATION'] ?? '', $m)) {
     $token = $m[1];
@@ -84,7 +85,9 @@ try {
         $token,
         $clientIp,
     );
-    $respond(200, $result);
+    $status = $result['status'];
+    unset($result['status']);
+    $respond($status, $result);
 } catch (\Throwable $e) {
     error_log('[support-agent] ' . $e::class . ': ' . $e->getMessage());
     $respond(500, [

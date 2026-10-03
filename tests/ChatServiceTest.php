@@ -78,7 +78,7 @@ final class ChatServiceTest extends TestCase
         $service = $this->service($claude);
 
         $first = $service->handle(null, 'Where is order 000000101?', 'token-clinic-a', '10.0.0.1');
-        self::assertTrue($first['signed_in']);
+        self::assertSame(200, $first['status']);
         self::assertSame('Order 000000101 is In design. UPS tracking 1Z999AA10123456784.', $first['reply']);
 
         $result = self::toolResults($claude)[0];
@@ -125,23 +125,29 @@ final class ChatServiceTest extends TestCase
         self::assertSame('Please adjust the margin.', $result['follow_ups'][0]['note']);
     }
 
-    public function testGuestCannotLookUpOrders(): void
+    public function testChatIsRefusedWithoutAValidLogin(): void
     {
-        $claude = new ScriptedClaude([
-            ScriptedClaude::toolCall('get_order_status', ['order_number' => '000000101']),
-            ScriptedClaude::text('Please sign in to see your orders.'),
-        ]);
-        $reply = $this->service($claude)->handle(null, 'Status of 000000101?', null, '10.0.0.1');
+        $claude = new ScriptedClaude([]);
+        $service = $this->service($claude);
 
-        self::assertFalse($reply['signed_in']);
-        self::assertSame('not_signed_in', self::toolResults($claude)[0]['error']);
+        foreach ([null, '', 'forged-token-xyz'] as $token) {
+            $reply = $service->handle(null, 'Status of 000000101?', $token, '10.0.0.1');
+            self::assertSame(401, $reply['status']);
+            self::assertSame('login_required', $reply['error']);
+            self::assertArrayNotHasKey('session_id', $reply);
+        }
+        self::assertSame([], $claude->requests, 'Claude is never called for logged-out users');
+        self::assertSame([], glob($this->dir . '/sessions/*.json'), 'no session is created');
     }
 
-    public function testInvalidTokenIsTreatedAsGuest(): void
+    public function testChatIsRefusedWhenTheLoginCannotBeVerified(): void
     {
-        $claude = new ScriptedClaude([ScriptedClaude::text('Hello!')]);
-        $reply = $this->service($claude)->handle(null, 'Hi', 'forged-token-xyz', '10.0.0.1');
-        self::assertFalse($reply['signed_in']);
+        $this->magento->down = true;
+        $claude = new ScriptedClaude([]);
+        $reply = $this->service($claude)->handle(null, 'Hi', 'token-clinic-a', '10.0.0.1');
+
+        self::assertSame(503, $reply['status']);
+        self::assertSame([], $claude->requests);
     }
 
     public function testSessionIdAloneNeverUnlocksAnotherUsersConversation(): void
@@ -149,7 +155,7 @@ final class ChatServiceTest extends TestCase
         $claude = new ScriptedClaude([
             ScriptedClaude::text('Hi Ana.'),
             ScriptedClaude::text('Hi Bo.'),
-            ScriptedClaude::text('Hi guest.'),
+            ScriptedClaude::text('Hi Ana again.'),
         ]);
         $service = $this->service($claude);
         $a = $service->handle(null, 'Hello', 'token-clinic-a', '10.0.0.1');
@@ -158,10 +164,26 @@ final class ChatServiceTest extends TestCase
         self::assertNotSame($a['session_id'], $b['session_id']);
         self::assertCount(1, $claude->requests[1]['messages'], 'clinic B starts with an empty history');
 
-        $guest = $service->handle($a['session_id'], 'What did we talk about?', null, '10.0.0.3');
-        self::assertNotSame($a['session_id'], $guest['session_id']);
-        self::assertFalse($guest['signed_in']);
-        self::assertCount(1, $claude->requests[2]['messages']);
+        $loggedOut = $service->handle($a['session_id'], 'What did we talk about?', null, '10.0.0.3');
+        self::assertSame(401, $loggedOut['status']);
+        self::assertCount(2, $claude->requests, 'a stolen session ID without a login gets nothing');
+
+        $aAgain = $service->handle($a['session_id'], 'Hi again', 'token-clinic-a', '10.0.0.1');
+        self::assertSame($a['session_id'], $aAgain['session_id'], 'the owner can continue their own chat');
+        self::assertCount(3, $claude->requests[2]['messages']);
+    }
+
+    public function testSameCustomerWithANewTokenKeepsTheConversation(): void
+    {
+        $this->magento->accounts['token-clinic-a-renewed'] = $this->magento->accounts['token-clinic-a'];
+        $claude = new ScriptedClaude([ScriptedClaude::text('Hi.'), ScriptedClaude::text('Still here.')]);
+        $service = $this->service($claude);
+
+        $first = $service->handle(null, 'Hello', 'token-clinic-a', '10.0.0.1');
+        $second = $service->handle($first['session_id'], 'Back again', 'token-clinic-a-renewed', '10.0.0.1');
+
+        self::assertSame($first['session_id'], $second['session_id']);
+        self::assertCount(3, $claude->requests[1]['messages']);
     }
 
     public function testLeakyReplyIsBlockedAndRemovedFromHistory(): void

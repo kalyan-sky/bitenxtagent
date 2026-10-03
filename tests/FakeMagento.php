@@ -6,6 +6,7 @@ namespace Bitenxt\SupportAgent\Tests;
 
 use Bitenxt\SupportAgent\Magento\CustomerDataSource;
 use Bitenxt\SupportAgent\Magento\MagentoAuthException;
+use Bitenxt\SupportAgent\Magento\MagentoException;
 
 /** In-memory Magento with two clinics, used to prove cross-customer isolation. */
 final class FakeMagento implements CustomerDataSource
@@ -15,6 +16,7 @@ final class FakeMagento implements CustomerDataSource
     /** @var array<string, list<array>> follow-ups keyed by order number, NOT scoped (like the real resolver may be) */
     public array $followUps = [];
     public int $currentCustomerCalls = 0;
+    public bool $down = false;
 
     public function __construct()
     {
@@ -50,6 +52,9 @@ final class FakeMagento implements CustomerDataSource
     public function currentCustomer(string $token): array
     {
         $this->currentCustomerCalls++;
+        if ($this->down) {
+            throw new MagentoException('connection refused');
+        }
         if (!isset($this->accounts[$token])) {
             throw new MagentoAuthException('bad token');
         }
