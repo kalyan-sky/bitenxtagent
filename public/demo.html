@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Support chat test page</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; color: #1d2327; }
+    input { width: 100%; padding: 8px; font: inherit; box-sizing: border-box; }
+    button { margin-top: 8px; padding: 8px 14px; font: inherit; cursor: pointer; }
+    code { background: #f0f2f3; padding: 1px 4px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Support chat test page</h1>
+  <p>Chat is for logged-in Pro customers only, so the chat button appears only once a token is set.</p>
+  <p>Paste a <strong>UAT</strong> customer token from <code>generateCustomerTokenWithId</code> to act as that
+     customer. It is kept only in this browser's localStorage. "Log out" removes it and the chat disappears.</p>
+  <input id="token" type="password" placeholder="Magento customer token (optional)" autocomplete="off">
+  <button id="save" type="button">Use this token</button>
+  <button id="clear" type="button">Log out</button>
+  <p id="state"></p>
+
+  <script>
+    var KEY = 'demoCustomerToken';
+    function show() {
+      var has = false;
+      try { has = !!localStorage.getItem(KEY); } catch (e) {}
+      document.getElementById('state').textContent = has ? 'Logged in: the chat button is in the corner.' : 'Logged out: no chat.';
+    }
+    document.getElementById('save').onclick = function () {
+      try { localStorage.setItem(KEY, document.getElementById('token').value.trim()); sessionStorage.clear(); } catch (e) {}
+      document.getElementById('token').value = '';
+      show();
+    };
+    document.getElementById('clear').onclick = function () {
+      try { localStorage.removeItem(KEY); sessionStorage.clear(); } catch (e) {}
+      show();
+    };
+    show();
+  </script>
+  <script src="/widget.js" data-auto-init data-token-key="demoCustomerToken"></script>
+</body>
+</html>
