@@ -1,0 +1,71 @@
+# Cloud Build pipeline: test → build image → push to Artifact Registry → deploy to Cloud Run.
+#
+# Use it from a Cloud Build trigger on pushes to `main` (see docs/DEPLOY-CONSOLE.md).
+# Change the defaults below in the trigger's "Substitution variables" if needed.
+#
+# The deploy step only sets the image, the runtime service account, the API key
+# secret and sizing. Environment variables (Magento URL, allowed origins, ...)
+# are managed in the Cloud Run console and are kept on every deploy.
+
+substitutions:
+  _REGION: asia-south1                 # Cloud Run + Artifact Registry region
+  _SERVICE: bitenxt-support-agent      # Cloud Run service name
+  _AR_REPO: bitenxt                    # Artifact Registry Docker repository
+  _RUNTIME_SA: bitenxt-support-agent   # service account the service runs as (name only)
+  _API_KEY_SECRET: anthropic-api-key   # Secret Manager secret holding the Anthropic API key
+
+steps:
+  # 1. Unit tests: a failing test stops the pipeline before anything is deployed.
+  - id: test
+    name: composer:2
+    entrypoint: sh
+    args:
+      - -c
+      - composer install --no-interaction --no-progress --prefer-dist && vendor/bin/phpunit
+
+  # 2. Build the image (the Dockerfile installs production dependencies itself).
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:$BUILD_ID
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:latest
+      - .
+
+  # 3. Push both tags.
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}']
+
+  # 4. Deploy a new revision. Creates the service on the first run.
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:$BUILD_ID
+      - --region=${_REGION}
+      - --service-account=${_RUNTIME_SA}@$PROJECT_ID.iam.gserviceaccount.com
+      - --update-secrets=ANTHROPIC_API_KEY=${_API_KEY_SECRET}:latest
+      - --allow-unauthenticated
+      - --port=8080
+      - --cpu=1
+      - --memory=512Mi
+      - --concurrency=20
+      - --timeout=120
+      - --min-instances=0
+      - --max-instances=10
+      - --quiet
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:$BUILD_ID
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1200s
