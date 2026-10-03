@@ -93,9 +93,10 @@ the script):
         data-auto-init data-token-key="customerToken"></script>
 ```
 
-`data-token-key` is the `localStorage` key where Pro keeps the customer's Magento token. If Pro keeps the token
-somewhere else (Redux, a cookie, memory), drop `data-auto-init` and call
-`BitenxtChat.init({ getToken: () => yourToken })` instead.
+The widget uses the Bearer token the customer already gets when logging in to Pro. **For the frontend team,
+[docs/INTEGRATION.md](docs/INTEGRATION.md)** covers how to find where Pro stores the token, the one-tag options
+(localStorage, sessionStorage, cookie, or JSON values), `BitenxtChat.setToken(token)` for tokens held in
+app state, and how to check the integration.
 
 What changes on Cloud Run compared with running locally:
 

@@ -5,22 +5,31 @@
  * while getToken() returns the customer's Magento token, and disappears (and
  * the conversation is cleared) when they log out or a different user logs in.
  *
- * Simplest: one tag. The API address is taken from where this file was
- * loaded (e.g. your Cloud Run URL), and the customer's Magento token is read
- * from localStorage under the key you name.
+ * The customer already receives a Bearer token from Magento when they log in
+ * to Pro (generateCustomerTokenWithId). The widget sends that same token with
+ * each message. Tell it where Pro keeps the token, in one of three ways:
+ *
+ * 1) Token in localStorage, sessionStorage or a cookie - one tag:
  *
  *   <script src="https://YOUR-SERVICE-xxxx.a.run.app/widget.js"
- *           data-auto-init data-token-key="customerToken"></script>
+ *           data-auto-init
+ *           data-token-key="customerToken"
+ *           data-token-source="localStorage"></script>
  *
- * Or initialise it yourself for full control:
+ *    data-token-source: localStorage (default) | sessionStorage | cookie
+ *    data-token-path:   only if the stored value is JSON, e.g. "token" or "auth.token"
+ *
+ * 2) Token in app state (React/Redux, Vue, Angular) - push it:
  *
  *   <script src="https://YOUR-SERVICE-xxxx.a.run.app/widget.js"></script>
- *   <script>
- *     BitenxtChat.init({
- *       // apiUrl defaults to <script origin>/chat
- *       getToken: () => store.getState().auth.token, // Magento customer token, or null when logged out
- *     });
- *   </script>
+ *   BitenxtChat.setToken(token);   // after login
+ *   BitenxtChat.setToken(null);    // on logout
+ *
+ * 3) Full control:
+ *
+ *   BitenxtChat.init({ getToken: () => currentTokenOrNull() });
+ *
+ * The API address defaults to <origin of widget.js>/chat.
  *
  * Replies are rendered with textContent only, never innerHTML, so a reply
  * can't inject markup or scripts into the page.
@@ -45,7 +54,7 @@
     if (initialised) return;
     initialised = true;
     var apiUrl = options.apiUrl || defaultApiUrl;
-    var getToken = options.getToken || function () { return null; };
+    var getToken = options.getToken || function () { return pushedToken; };
     var title = options.title || 'BiteNXT Support';
     var greeting = options.greeting ||
       'Hi! I can help with your order status, tracking, products and account questions. How can I help?';
@@ -181,10 +190,74 @@
     });
   }
 
-  window.BitenxtChat = { init: init };
+  // ---- Reading the token Pro stores at login --------------------------------
 
+  // Pro may store the token as a plain string, as a JSON string ("\"abc\""),
+  // or inside a JSON object ({"auth":{"token":"abc"}}). tokenPath picks the
+  // field inside JSON, e.g. "token" or "auth.token". A "Bearer " prefix is removed.
+  function normaliseToken(raw, tokenPath) {
+    if (raw === null || raw === undefined || raw === '') return null;
+    var value = raw;
+    if (typeof value === 'string') {
+      var trimmed = value.trim();
+      if (trimmed.charAt(0) === '{' || trimmed.charAt(0) === '"') {
+        try { value = JSON.parse(trimmed); } catch (e) { value = trimmed; }
+      }
+    }
+    if (tokenPath && value && typeof value === 'object') {
+      tokenPath.split('.').forEach(function (part) { value = value == null ? null : value[part]; });
+    }
+    if (typeof value !== 'string') return null;
+    value = value.replace(/^Bearer\s+/i, '').trim();
+    return value === '' || value === 'null' || value === 'undefined' ? null : value;
+  }
+
+  function readCookie(name) {
+    var parts = document.cookie ? document.cookie.split('; ') : [];
+    for (var i = 0; i < parts.length; i++) {
+      var eq = parts[i].indexOf('=');
+      if (parts[i].substring(0, eq) === name) {
+        try { return decodeURIComponent(parts[i].substring(eq + 1)); } catch (e) { return parts[i].substring(eq + 1); }
+      }
+    }
+    return null;
+  }
+
+  /** Builds getToken() for source = localStorage | sessionStorage | cookie. */
+  function tokenReader(source, key, tokenPath) {
+    return function () {
+      var raw = null;
+      try {
+        if (source === 'sessionStorage') raw = sessionStorage.getItem(key);
+        else if (source === 'cookie') raw = readCookie(key);
+        else raw = localStorage.getItem(key);
+      } catch (e) { raw = null; }
+      return normaliseToken(raw, tokenPath);
+    };
+  }
+
+  // For apps that keep the token in memory/app state (React, Vue, Angular):
+  // call BitenxtChat.setToken(token) after login and setToken(null) on logout.
+  var pushedToken = null;
+  function setToken(token) {
+    pushedToken = normaliseToken(token, null);
+    if (!initialised) {
+      init({ getToken: function () { return pushedToken; } });
+    }
+  }
+
+  window.BitenxtChat = { init: init, setToken: setToken };
+
+  // ---- One-tag setup ---------------------------------------------------------
+  //   data-auto-init                    turn on one-tag setup
+  //   data-token-key="customerToken"     where Pro stores the login token (required)
+  //   data-token-source="localStorage"   localStorage (default) | sessionStorage | cookie
+  //   data-token-path="auth.token"       only if the stored value is JSON
+  //   data-title="BiteNXT Support"       optional panel title
   if (script && script.hasAttribute('data-auto-init')) {
     var tokenKey = script.getAttribute('data-token-key');
+    var tokenSource = script.getAttribute('data-token-source') || 'localStorage';
+    var tokenPath = script.getAttribute('data-token-path') || '';
     var start = function () {
       if (!tokenKey) {
         if (window.console) console.warn('BitenxtChat: data-token-key is required; chat is for logged-in users only.');
@@ -192,9 +265,7 @@
       }
       init({
         title: script.getAttribute('data-title') || undefined,
-        getToken: function () {
-          try { return localStorage.getItem(tokenKey); } catch (e) { return null; }
-        }
+        getToken: tokenReader(tokenSource, tokenKey, tokenPath)
       });
     };
     if (document.readyState === 'loading') {
