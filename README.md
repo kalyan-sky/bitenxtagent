@@ -83,8 +83,9 @@ When it finishes you have, for example, `https://bitenxt-support-agent-abc123-el
 | `/demo.html` | Test page: chat as a guest, or paste a UAT customer token to test order questions |
 | `/health` | Health check |
 
-Then add one line to the Pro frontend, and add the frontend's origin to `ALLOWED_ORIGINS` in
-`deploy/env.yaml` (re-run the script after changing it):
+Then add one line to the Pro frontend (UAT: `https://uat-pro.bitenxt.com`, which is already in
+`ALLOWED_ORIGINS` in `deploy/env.example.yaml`; add the production Pro domain there when you go live and re-run
+the script):
 
 ```html
 <script src="https://bitenxt-support-agent-abc123-el.a.run.app/widget.js"
