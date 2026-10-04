@@ -56,8 +56,18 @@ To run on your own server instead of Cloud Run, point the web server's document 
 
 ## Deploy to Google Cloud Run
 
-The repo includes a `Dockerfile` (PHP 8.3 + Apache) and a deploy script. You run one command and get an
-HTTPS URL; the widget and the chat API are both served from it.
+The widget and the chat API are both served from the Cloud Run service URL.
+
+### Recommended: Cloud Build trigger (console only, no CLI)
+
+[`cloudbuild.yaml`](cloudbuild.yaml) runs on every push to `main`: tests → build image → push to Artifact
+Registry → deploy to Cloud Run. If a test fails, nothing is deployed. The one-time console setup (APIs,
+Artifact Registry, Firestore, secret, service accounts, GitHub trigger, environment variables) is described
+click by click in **[docs/DEPLOY-CONSOLE.md](docs/DEPLOY-CONSOLE.md)**.
+
+### Alternative: one command from a terminal
+
+The same setup and deploy can be done with the `gcloud` CLI and the included script:
 
 ```bash
 cp deploy/env.example.yaml deploy/env.yaml      # set MAGENTO_GRAPHQL_URL, ALLOWED_ORIGINS, support contacts
@@ -218,7 +228,8 @@ public/index.php            HTTP entry: CORS, auth header, client IP, JSON in/ou
 public/widget.js            Embeddable chat widget (renders text only, no HTML)
 public/demo.html            Test page served by the service
 Dockerfile, docker/         Cloud Run image (PHP 8.3 + Apache on $PORT)
-deploy/                     Cloud Run deploy script + environment template
+cloudbuild.yaml             Cloud Build pipeline: test, build, push, deploy (docs/DEPLOY-CONSOLE.md)
+deploy/                     CLI deploy script + environment template (alternative to Cloud Build)
 src/Chat/ChatService.php    Request pipeline and session/identity binding
 src/Agent/                  System prompt, tool definitions + execution, Claude loop
 src/Magento/                GraphQL client, fixed customer-scoped queries, field allow-listing
