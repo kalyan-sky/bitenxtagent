@@ -15,8 +15,9 @@ namespace Bitenxt\SupportAgent\Support;
 class Logger
 {
     private const WARNINGS = ['suspicious_input', 'reply_blocked', 'reply_redacted', 'rate_limited', 'token_rejected',
-        'foreign_row_dropped', 'session_reset', 'handoff'];
-    private const ERRORS = ['magento_error', 'magento_auth_error', 'claude_error', 'claude_unavailable', 'storage_error'];
+        'foreign_row_dropped', 'session_reset', 'handoff', 'llm_fallback'];
+    private const ERRORS = ['magento_error', 'magento_auth_error', 'claude_error', 'claude_unavailable', 'storage_error',
+        'token_budget_exceeded', 'token_budget_unavailable', 'llm_all_failed', 'llm_config_error'];
 
     public function __construct(private readonly string $file)
     {

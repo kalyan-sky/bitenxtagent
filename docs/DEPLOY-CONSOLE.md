@@ -16,7 +16,8 @@ another region, set them as substitution variables on the trigger (step 8).
 | Artifact Registry repository | `bitenxt` |
 | Cloud Run service | `bitenxt-support-agent` |
 | Runtime service account | `bitenxt-support-agent` |
-| Secret with the Anthropic API key | `anthropic-api-key` |
+| Secret with the Gemini API key (primary AI) | `gemini-api-key` |
+| Secret with the Anthropic API key (fallback AI) | `anthropic-api-key` |
 
 ## One-time setup
 
@@ -30,22 +31,32 @@ another region, set them as substitution variables on the trigger (step 8).
 **Artifact Registry → Repositories → Create repository**
 - Name: `bitenxt` · Format: **Docker** · Mode: Standard · Location type: **Region** → `asia-south1` → **Create**.
 
-### 3. Firestore (chat history and rate limits)
+### 3. Firestore (chat history, rate limits and token usage)
 
 **Firestore → Create database**
 - Database ID: `(default)` · Mode: **Native** · Location type: **Region** → `asia-south1` → **Create**.
 
 Then, in that database:
 - **Time-to-live (TTL) → Create policy**: collection group `chat_sessions`, timestamp field `expireAt`.
-  Repeat for collection group `chat_ratelimits`, field `expireAt`. This deletes old chats (after
-  `HISTORY_RETENTION_DAYS`) and old rate-limit counters automatically.
+  Repeat for collection groups `chat_ratelimits` and `chat_token_usage`, field `expireAt`. This deletes old
+  chats (after `HISTORY_RETENTION_DAYS`), old rate-limit counters and old token counters automatically.
 - **Indexes → Single field → Add exemption**: collection `chat_sessions`, field `data`, untick every index
   type → **Save**. The full conversation is never searched, so indexing it would only cost money.
 
-### 4. Anthropic API key in Secret Manager
+### 4. AI API keys in Secret Manager
 
-**Security → Secret Manager → Create secret**
-- Name: `anthropic-api-key` · Secret value: paste the key (`sk-ant-…`) → **Create secret**.
+The chatbot uses **Gemini first** and **Claude as automatic fallback**. Get the keys:
+- **Gemini:** [Google AI Studio](https://aistudio.google.com) → **Get API key**. Create it in a Google Cloud
+  project with billing, so you can set quotas (see "Spend protection" below).
+- **Claude:** [Anthropic Console](https://console.anthropic.com) → **API Keys**.
+
+**Security → Secret Manager → Create secret**, once per key:
+- Name: `gemini-api-key` · Secret value: the Gemini key → **Create secret**.
+- Name: `anthropic-api-key` · Secret value: the Anthropic key (`sk-ant-…`) → **Create secret**.
+
+To rotate a key, add a **new version** to the secret. The service picks up `latest` on its next deploy or
+restart. To give a provider several keys (the next one is tried when one is rate-limited or rejected), put
+them in one secret version separated by commas.
 
 ### 5. Service account the chatbot runs as
 
@@ -53,7 +64,8 @@ Then, in that database:
 - Name: `bitenxt-support-agent` → **Create and continue**.
 - Role: **Cloud Datastore User** (lets it read and write Firestore) → **Done**.
 
-Let it read the API key: **Secret Manager → `anthropic-api-key` → Permissions → Grant access**
+Let it read the API keys. For **each** secret (`gemini-api-key` and `anthropic-api-key`):
+**Secret Manager → secret → Permissions → Grant access**
 - Principal: `bitenxt-support-agent@<PROJECT_ID>.iam.gserviceaccount.com` · Role: **Secret Manager Secret
   Accessor** → **Save**.
 
@@ -87,7 +99,7 @@ GitHub app for `kalyan-sky` → then **Link repository** → `kalyan-sky/bitenxt
 - Event: **Push to a branch** · Repository: `kalyan-sky/bitenxtagent` · Branch: `^main$`
 - Configuration: **Cloud Build configuration file** · Location: Repository · `cloudbuild.yaml`
 - Substitution variables: only needed if you changed any name or region from the table above
-  (`_REGION`, `_SERVICE`, `_AR_REPO`, `_RUNTIME_SA`, `_API_KEY_SECRET`).
+  (`_REGION`, `_SERVICE`, `_AR_REPO`, `_RUNTIME_SA`), or if your secrets have other names (`_SECRETS`).
 - Service account: `cloud-build-deployer`
 - **Create**.
 
@@ -108,13 +120,24 @@ variables**. Add:
 | `SUPPORT_EMAIL` | your support email | yes |
 | `SUPPORT_PHONE` | support phone, or leave out | no |
 | `STORE_NAME` | `BiteNXT` | no (default) |
+| `LLM_PROVIDERS` | `gemini,claude` (order = primary, then fallback) | yes |
+| `LLM_GEMINI_MODEL` | the Gemini model ID from Google AI Studio (e.g. a current Gemini Flash model) | yes |
+| `LLM_CLAUDE_MODEL` | `claude-opus-5-5` | no (default) |
 | `HANDOFF_WEBHOOK_URL` | Slack/Teams incoming webhook for "talk to a person" | no |
-| `CLAUDE_EFFORT` | `low` | no (default) |
+| `LLM_CLAUDE_EFFORT` | `low` | no (default) |
 | `HISTORY_RETENTION_DAYS` | `90` | no (default) |
 | `CONVERSATION_IDLE_MINUTES` | `30` | no (default) |
+| `MAX_OUTPUT_TOKENS` | `1024` (most tokens one AI reply can produce) | no (default) |
+| `TOKEN_LIMIT_CUSTOMER_PER_DAY` | `200000` | no (default) |
+| `TOKEN_LIMIT_GLOBAL_PER_HOUR` | `1000000` | no (default) |
+| `TOKEN_LIMIT_GLOBAL_PER_DAY` | `5000000` | no (default) |
+| `LLM_GEMINI_DAILY_TOKEN_LIMIT` | e.g. `3000000`; over it, Claude answers instead (`0` = no limit) | no |
 
-The `ANTHROPIC_API_KEY` secret is already attached by the pipeline. You'll see it under **Secrets exposed as
-environment variables**. → **Deploy**.
+The key secrets are already attached by the pipeline as `LLM_GEMINI_API_KEY` and `LLM_CLAUDE_API_KEY`. You'll
+see them under **Secrets exposed as environment variables**. → **Deploy**.
+
+To switch which AI answers first, change the order in `LLM_PROVIDERS` here (for example `claude,gemini`). No
+code change or rebuild is needed.
 
 These settings stay in place on every later deploy from Cloud Build. To change one, repeat this step.
 
@@ -128,6 +151,36 @@ These settings stay in place on every later deploy from Cloud Build. To change o
   ```html
   <script src="<URL>/widget.js" data-auto-init data-token-key="customerToken"></script>
   ```
+
+## Spend protection (token limits and alerts)
+
+The app itself stops calling the AI when a limit is reached:
+
+| Limit | Variable | What the customer sees |
+|---|---|---|
+| Per reply | `MAX_OUTPUT_TOKENS` (1,024) | (answers are just capped) |
+| Per customer per day | `TOKEN_LIMIT_CUSTOMER_PER_DAY` (200,000) | "You've reached today's chat limit…" |
+| Whole service per hour / day | `TOKEN_LIMIT_GLOBAL_PER_HOUR` (1M) / `_PER_DAY` (5M) | "Chat is temporarily unavailable" |
+| One provider per day | `LLM_<NAME>_DAILY_TOKEN_LIMIT` | nothing: the next provider answers |
+
+Tokens are reserved **before** each AI call and corrected to the real usage afterwards, so a burst of requests
+can't overshoot. If the counters (Firestore) can't be reached, no AI calls are made.
+
+**Get an email when a limit is hit:**
+1. **Logging → Logs Explorer**, query: `jsonPayload.event="token_budget_exceeded"`
+2. **Create alert** (or **Actions → Create log alert**) → name `Chatbot token limit reached` → notification
+   channel: your email → **Save**.
+   Do the same for `jsonPayload.event="llm_all_failed"` (no AI provider could answer) if you like.
+
+**Also set limits at the providers.** This is a second safety net that still works if the app's counters fail:
+- **Gemini:** in the Google Cloud project that owns the Gemini key, **Billing → Budgets & alerts → Create
+  budget** (alert emails). Under **APIs & Services → Generative Language API → Quotas**, lower the requests
+  per minute and tokens per minute to a level you're comfortable with.
+- **Claude:** **Anthropic Console → Settings → Limits**: set a monthly spend limit for the workspace the key
+  belongs to.
+
+**See usage:** every AI call is logged as `jsonPayload.event="llm_call"`, with provider, model and
+input/output tokens, and no chat text.
 
 ## Day to day
 
@@ -144,7 +197,9 @@ These settings stay in place on every later deploy from Cloud Build. To change o
 |---|---|
 | Build fails at **deploy** with `iam.serviceaccounts.actAs` | Step 6: give `cloud-build-deployer` **Service Account User** on `bitenxt-support-agent`. |
 | Build fails at **push** with permission denied | Step 6: **Artifact Registry Writer**, and the repository region must match `_REGION`. |
-| Service fails to start: secret not found or permission denied | Step 4/5: the secret name must be `anthropic-api-key`, and the runtime service account needs **Secret Manager Secret Accessor** on it. |
+| Service fails to start: secret not found or permission denied | Step 4/5: the secrets must be named `gemini-api-key` and `anthropic-api-key` (or set `_SECRETS` on the trigger), and the runtime service account needs **Secret Manager Secret Accessor** on each. |
+| Every reply comes from Claude, never Gemini | Logs: look for `llm_config_error` (e.g. `LLM_GEMINI_MODEL` not set) or `llm_fallback` with the Gemini error (wrong model ID, key, or quota). |
+| "Chat is temporarily unavailable" for everyone | A service-wide token limit was reached (`token_budget_exceeded`, scope `global`), or Firestore is unreachable (`token_budget_unavailable`). Raise the limit if the traffic is genuine. |
 | `/health` works but every chat says "Please log in" | The widget isn't sending the token (see INTEGRATION.md), or the token is from a different Magento than `MAGENTO_GRAPHQL_URL`. |
 | Chat says "We can't verify your account right now" | Cloud Run can't reach Magento. Check `MAGENTO_GRAPHQL_URL`, and whether the VM's firewall blocks Google Cloud IPs. If it allows only listed IPs, you need a fixed outgoing IP (Cloud NAT). |
 | Browser console shows a CORS error | Add the Pro site's exact origin (`https://…`, no trailing slash) to `ALLOWED_ORIGINS` (step 10). |

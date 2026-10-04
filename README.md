@@ -3,14 +3,16 @@
 A customer-support chatbot for the BiteNXT Pro portal. Clinics can ask about their orders (status, items,
 tracking, follow-up notes), search products and services, get answers from your help articles, and be handed
 to a person when the bot can't help. It's a small standalone PHP service. It talks to Magento only through
-the customer's own GraphQL token, and to Claude through the official Anthropic PHP SDK.
+the customer's own GraphQL token. The AI is configurable: by default **Gemini answers first and Claude takes
+over automatically** if Gemini is down, rate-limited or refuses. Any OpenAI-compatible provider can be added
+through environment variables. Token limits cap AI spend per reply, per customer and for the whole service.
 
 ```
  Pro frontend ──(message + customer's Magento token)──▶  POST /chat  (this service)
                                                            │
                          rate limit → input guard → verify token with Magento → session
                                                            │
-                                     Claude (tool-use loop, 7 fixed tools)
+          token budget check → Gemini ⇢ (fallback) Claude   (tool-use loop, 7 fixed tools)
                                                            │
                    tools call fixed GraphQL queries with the CUSTOMER's token → allow-listed fields only
                                                            │
@@ -27,13 +29,14 @@ The protection is built into the code, so it holds even if someone talks the mod
 | Order-number guessing | "Not found" looks the same whether the order doesn't exist or belongs to someone else. After 5 misses per session, lookups stop. Rate limits apply per IP, session and customer. | `SupportTools::notFound`, `Guardrails/RateLimiter.php` |
 | Unsafe custom resolvers | Never called: `salesOrder`, `fetchPatients`, `getCustomerAddresses`, `fetchAttachment`, `listServiceFiles` and every admin operation. `getOrderFollowUps` is only called after ownership is confirmed, and rows with a different `customer_id` are dropped. | `MagentoCustomerDataSource`, `SupportTools::followUps` |
 | Leaking personal data | Tool results are allow-listed. Addresses, phones, emails, payment data, file paths, designer assignments and patient age/gender never reach the model. Patient names are shortened to "John S.". | `Magento/OrderPresenter.php` |
-| Exposing code or internals | The model never writes GraphQL or SQL; queries are hard-coded. Every reply is scanned for code, SQL/GraphQL, stack traces, server paths, PHP namespaces and API keys. A hit replaces the whole reply and removes that turn from history. Magento/Claude errors are logged, never shown. | `Guardrails/OutputGuard.php`, `ChatService.php` |
+| Exposing code or internals | The model never writes GraphQL or SQL; queries are hard-coded. Every reply is scanned for code, SQL/GraphQL, stack traces, server paths, PHP namespaces and API keys. A hit replaces the whole reply and removes that turn from history. Magento and AI-provider errors are logged, never shown. | `Guardrails/OutputGuard.php`, `ChatService.php` |
 | System-prompt extraction | The prompt carries a random canary marker. If a reply contains it, the reply is blocked. | `App::canary`, `OutputGuard` |
 | Prompt injection | The input guard strips invisible/control characters and flags injection attempts in the log. The system prompt says its rules override anything in the conversation. The structural limits above hold even if the model is fooled. | `Guardrails/InputGuard.php`, `Agent/SystemPrompt.php` |
-| Anonymous use | Every message must carry a valid Magento customer token, checked with Magento first. Without one the request is refused (401) before any session is loaded or Claude is called. | `ChatService::handle` |
+| Anonymous use | Every message must carry a valid Magento customer token, checked with Magento first. Without one the request is refused (401) before any session is loaded or the AI is called. | `ChatService::handle` |
 | Reading someone else's chat | The client never sends a conversation ID. The server finds the thread from the verified customer only, so there is no ID to guess or steal. | `ChatService::currentConversation` |
 | Contact details in replies | Emails, phone numbers and card numbers (Luhn-checked) are redacted unless they are the customer's own, your public support contacts, or IDs from the customer's own orders. | `OutputGuard::filter` |
-| Credentials | The Magento token is used per request and never stored or sent to Claude. The service holds no admin token. Logs pseudonymise customer IDs and contain no chat text. | `public/index.php`, `Support/Logger.php` |
+| Runaway AI cost (attack or spike) | Before every AI call, its estimated tokens are reserved against a per-customer daily limit, service-wide hourly and daily limits, and optional per-provider daily limits; over a limit, the AI is not called. Usage is then corrected to what the provider reported. Output is capped per reply. Counters are shared in Firestore and fail closed. | `Budget/TokenBudget.php`, `Agent/SupportAgent.php` |
+| Credentials | The Magento token is used per request and never stored or sent to the AI. AI API keys live in Secret Manager. The service holds no admin token. Logs pseudonymise customer IDs and contain no chat text. | `public/index.php`, `Support/Logger.php` |
 | Made-up policies | Policy answers must come from `search_help_articles`. With no match, the bot says so and offers a person. | `SystemPrompt`, `knowledge/` |
 
 The tests in `tests/ChatServiceTest.php` check these guarantees against two fake clinics: cross-clinic
@@ -46,7 +49,7 @@ Requirements: PHP 8.1+ with `curl`, `json` and `mbstring`, plus Composer.
 
 ```bash
 composer install
-cp .env.example .env        # then fill in ANTHROPIC_API_KEY, MAGENTO_GRAPHQL_URL, ALLOWED_ORIGINS, ...
+cp .env.example .env        # then fill in LLM_GEMINI_MODEL/_API_KEY, LLM_CLAUDE_API_KEY, MAGENTO_GRAPHQL_URL, ...
 composer test               # 29 tests, all offline
 composer serve              # http://127.0.0.1:8080 for local testing
 ```
@@ -81,7 +84,7 @@ The script is safe to re-run, and each run deploys a new revision. It:
 2. creates a Firestore database for chat sessions and rate limits, with TTL policies so old data is deleted
    automatically;
 3. creates a dedicated service account that can only use Firestore and read the one secret;
-4. asks for your Anthropic API key once and stores it in Secret Manager (it never goes into the image or
+4. asks for your Gemini and Anthropic API keys once and stores it in Secret Manager (it never goes into the image or
    `env.yaml`);
 5. builds the image with Cloud Build and deploys it, then prints the service URL and the widget snippet.
 
@@ -155,7 +158,7 @@ Authorization: Bearer <customer token>       Authorization: Bearer <customer tok
 The client never sends a conversation ID. The server works out the customer's thread from the verified token.
 
 **Chat is for logged-in Pro customers only.** A request without a valid Magento customer token gets
-`401 {"error": "login_required"}`, and Claude is never called. If Magento can't verify the token (for example,
+`401 {"error": "login_required"}`, and the AI is never called. If Magento can't verify the token (for example,
 the VM is down), the response is `503`. The widget shows its chat button only while a token is present and hides it when the
 customer logs out. When a token expires, it asks the customer to log in again.
 
@@ -168,11 +171,11 @@ Chat history works like Amazon's customer-service chat:
   device, because it belongs to the logged-in customer, not the browser.
 - **The bot starts fresh after a quiet spell.** After `CONVERSATION_IDLE_MINUTES` (default 30) without
   messages, or after `MAX_TURNS_PER_CONVERSATION` messages, the next message starts a new conversation for
-  Claude. That keeps answers focused and cost predictable. The customer still sees the whole thread.
+  the AI. That keeps answers focused and cost predictable. The customer still sees the whole thread.
 - **History is kept `HISTORY_RETENTION_DAYS`** (default 90) after the last message, then Firestore deletes it
   automatically.
 - **The thread shows exactly what the customer saw.** Redacted values stay redacted and blocked replies never
-  reappear. Claude's internal tool data is never shown.
+  reappear. The AI's internal tool data is never shown.
 
 Chat history can contain patient-related details the customer typed, so treat Firestore as personal-data
 storage. Access is limited to the service account. Shorten `HISTORY_RETENTION_DAYS` if your data policy needs it.
@@ -209,17 +212,29 @@ See `.env.example`. Key settings:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `CLAUDE_MODEL` | `claude-opus-5-5` | |
-| `CLAUDE_EFFORT` | `low` | `low` suits support chat. Raise to `medium` if answers feel shallow. |
+| `LLM_PROVIDERS` | `gemini,claude` | AI providers in order: primary, then fallbacks |
+| `LLM_GEMINI_MODEL` | (required) | Gemini model ID from Google AI Studio |
+| `LLM_GEMINI_API_KEY` / `LLM_CLAUDE_API_KEY` | (secrets) | From Secret Manager. Several comma-separated keys are tried in turn on 401/403/429. |
+| `LLM_CLAUDE_MODEL` / `LLM_CLAUDE_EFFORT` | `claude-opus-5-5` / `low` | |
+| `LLM_<NAME>_DAILY_TOKEN_LIMIT` | 0 (none) | Per-provider cap; over it, the next provider answers |
+| `MAX_OUTPUT_TOKENS` | 1024 | Most tokens one AI reply can produce |
+| `TOKEN_LIMIT_CUSTOMER_PER_DAY` | 200000 | Per logged-in customer (input + output tokens) |
+| `TOKEN_LIMIT_GLOBAL_PER_HOUR` / `_PER_DAY` | 1000000 / 5000000 | Whole service |
 | `MAX_MESSAGE_CHARS` | 2000 | |
 | `HISTORY_RETENTION_DAYS` | 90 | How long a customer's chat history is kept after their last message |
 | `CONVERSATION_IDLE_MINUTES` | 30 | Quiet time after which the bot starts a fresh conversation (the thread is kept) |
 | `MAX_TURNS_PER_CONVERSATION` | 40 | Messages per conversation before the bot starts a fresh one |
 | `RATE_LIMIT_PER_MINUTE` / `_PER_DAY` | 10 / 200 | Applied per IP and per customer |
 
-Requests use server-side refusal fallbacks (`fallbacks: "default"`), so a false positive from a safety
-classifier on dental or medical wording is retried on a fallback model instead of failing. The system prompt
-and tool list are prompt-cached.
+**Adding another AI provider:** any provider with an OpenAI-compatible Chat Completions API (OpenAI, Azure
+OpenAI, Mistral, Groq, DeepSeek, OpenRouter, Ollama, …) works without code changes. Add its name to
+`LLM_PROVIDERS` and set `LLM_<NAME>_TYPE=openai-compatible`, `LLM_<NAME>_BASE_URL`, `LLM_<NAME>_MODEL`, and
+`LLM_<NAME>_API_KEY` as a secret (add it to `_SECRETS` in the Cloud Build trigger).
+
+**How fallback works:** each message goes to the first provider. If it errors, times out, is rate-limited,
+refuses, or is over its own daily token limit, the next provider answers, starting from the last messages the
+customer saw. The next message tries the primary again. On Claude, requests also use server-side refusal
+fallbacks (`fallbacks: "default"`), and the system prompt and tools are prompt-cached.
 
 ## Layout
 
@@ -231,11 +246,13 @@ Dockerfile, docker/         Cloud Run image (PHP 8.3 + Apache on $PORT)
 cloudbuild.yaml             Cloud Build pipeline: test, build, push, deploy (docs/DEPLOY-CONSOLE.md)
 deploy/                     CLI deploy script + environment template (alternative to Cloud Build)
 src/Chat/ChatService.php    Request pipeline and session/identity binding
-src/Agent/                  System prompt, tool definitions + execution, Claude loop
+src/Agent/                  System prompt, tool definitions + execution, provider-chain tool loop
+src/Llm/                    AI providers: Anthropic (SDK) and OpenAI-compatible (Gemini, OpenAI, …), settings
+src/Budget/                 Token budget: reservations, limits, Firestore/file counters
 src/Magento/                GraphQL client, fixed customer-scoped queries, field allow-listing
 src/Guardrails/             Input guard, output guard, rate limiters (file / Firestore)
 src/Session/                Conversation model + transcript; file store (local) and Firestore store (Cloud Run)
 src/Gcp/FirestoreClient.php Minimal Firestore REST client (metadata-server auth)
 src/Knowledge/              Help-article search over knowledge/*.md
-tests/                      Offline tests with a fake Magento and a scripted Claude
+tests/                      Offline tests with a fake Magento, a scripted Claude and a scripted Gemini (HTTP)
 ```

@@ -13,5 +13,5 @@ interface ClaudeGateway
      * @param list<array<string, mixed>> $tools
      * @param list<array<string, mixed>> $messages
      */
-    public function create(string $system, array $tools, array $messages): BetaMessage;
+    public function create(string $system, array $tools, array $messages, int $maxTokens): BetaMessage;
 }

@@ -16,11 +16,12 @@ final class AnthropicClaudeGateway implements ClaudeGateway
     ) {
     }
 
-    public function create(string $system, array $tools, array $messages): BetaMessage
+    public function create(string $system, array $tools, array $messages, int $maxTokens): BetaMessage
     {
         return $this->client->beta->messages->create(
             model: $this->model,
-            maxTokens: 16000,
+            // Capped per reply by MAX_OUTPUT_TOKENS (part of the token budget).
+            maxTokens: $maxTokens,
             // The system prompt and tool list never change, so they are cached
             // across all conversations; the top-level cacheControl also caches
             // the growing conversation between tool-loop steps.
@@ -28,7 +29,7 @@ final class AnthropicClaudeGateway implements ClaudeGateway
             cacheControl: ['type' => 'ephemeral'],
             tools: $tools,
             messages: $messages,
-            // Support chat does well at low effort; raise CLAUDE_EFFORT if needed.
+            // Support chat does well at low effort; raise LLM_CLAUDE_EFFORT if needed.
             outputConfig: ['effort' => $this->effort],
             // If a safety classifier declines (e.g. a false positive on dental
             // or medical wording), retry on the server-chosen fallback model.

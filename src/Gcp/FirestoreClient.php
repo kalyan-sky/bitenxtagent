@@ -81,10 +81,11 @@ class FirestoreClient
     }
 
     /**
-     * Atomically adds 1 to the `count` field of each document (creating it if
-     * needed) and sets its `expireAt`. Returns the new counts, in order.
+     * Atomically adds `by` (default 1, may be negative) to the `count` field
+     * of each document, creating it if needed, and sets its `expireAt`. All
+     * counters change in one commit. Returns the new counts, in order.
      *
-     * @param list<array{collection: string, id: string, expireAt: int}> $counters
+     * @param list<array{collection: string, id: string, expireAt: int, by?: int}> $counters
      * @return list<int>
      */
     public function increment(array $counters): array
@@ -98,7 +99,7 @@ class FirestoreClient
                     'fields' => ['expireAt' => self::timestamp($counter['expireAt'])],
                 ],
                 'updateMask' => ['fieldPaths' => ['expireAt']],
-                'updateTransforms' => [['fieldPath' => 'count', 'increment' => ['integerValue' => '1']]],
+                'updateTransforms' => [['fieldPath' => 'count', 'increment' => ['integerValue' => (string) ($counter['by'] ?? 1)]]],
             ];
         }
         [$status, $body] = $this->request('POST', $this->documentsPath . ':commit', ['writes' => $writes]);

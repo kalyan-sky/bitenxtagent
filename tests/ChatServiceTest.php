@@ -6,11 +6,14 @@ namespace Bitenxt\SupportAgent\Tests;
 
 use Bitenxt\SupportAgent\Agent\SupportAgent;
 use Bitenxt\SupportAgent\Agent\SupportTools;
+use Bitenxt\SupportAgent\Budget\FileTokenCounter;
+use Bitenxt\SupportAgent\Budget\TokenBudget;
 use Bitenxt\SupportAgent\Chat\ChatService;
 use Bitenxt\SupportAgent\Guardrails\InputGuard;
 use Bitenxt\SupportAgent\Guardrails\OutputGuard;
 use Bitenxt\SupportAgent\Guardrails\FileRateLimiter;
 use Bitenxt\SupportAgent\Knowledge\KnowledgeBase;
+use Bitenxt\SupportAgent\Llm\AnthropicProvider;
 use Bitenxt\SupportAgent\Session\FileSessionStore;
 use Bitenxt\SupportAgent\Support\HandoffNotifier;
 use Bitenxt\SupportAgent\Support\Logger;
@@ -43,7 +46,12 @@ final class ChatServiceTest extends TestCase
             rateLimiter: new FileRateLimiter($this->dir . '/rl', 100, 1000),
             inputGuard: new InputGuard(2000),
             outputGuard: new OutputGuard('ref-canary', ['support@bitenxt.com']),
-            agent: new SupportAgent($claude, 'system prompt [ref-canary]'),
+            agent: new SupportAgent(
+                [new AnthropicProvider('claude', 'claude-opus-5-5', [$claude])],
+                'system prompt [ref-canary]',
+                new TokenBudget(new FileTokenCounter($this->dir . '/tokens.json'), new Logger($this->dir . '/log.jsonl'), 200000, 1000000, 5000000),
+                new Logger($this->dir . '/log.jsonl'),
+            ),
             magento: $this->magento,
             knowledge: new KnowledgeBase($this->dir . '/kb'),
             handoff: new HandoffNotifier($this->dir . '/handoffs.jsonl'),

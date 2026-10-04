@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace Bitenxt\SupportAgent\Chat;
 
-use Anthropic\Core\Exceptions\APIConnectionException;
-use Anthropic\Core\Exceptions\APIStatusException;
-use Anthropic\Core\Exceptions\RateLimitException;
 use Bitenxt\SupportAgent\Agent\SupportAgent;
 use Bitenxt\SupportAgent\Agent\SupportTools;
 use Bitenxt\SupportAgent\Guardrails\InputGuard;
@@ -87,19 +84,15 @@ final class ChatService
             $this->logger->log('suspicious_input', ['session' => $session->id, 'flags' => $input->flags]);
         }
 
-        $historyLength = count($session->messages);
+        // Snapshot, so a blocked reply can be undone even if a different
+        // provider answered (and replaced the AI history).
+        [$previousMessages, $previousProvider] = [$session->messages, $session->provider];
         $tools = new SupportTools($session, $customerToken, $this->magento, $this->knowledge, $this->handoff, $this->logger);
 
-        try {
-            $result = $this->agent->respond($session, $input->text, $tools);
-        } catch (RateLimitException | APIConnectionException $e) {
-            $this->logger->log('claude_unavailable', ['session' => $session->id, 'error' => $e::class]);
-
-            return $this->finish($session, $input->text, SupportAgent::FALLBACK_REPLY);
-        } catch (APIStatusException $e) {
-            $this->logger->log('claude_error', ['session' => $session->id, 'error' => $e::class, 'status' => $e->getCode()]);
-
-            return $this->finish($session, $input->text, SupportAgent::FALLBACK_REPLY);
+        // Provider errors, fallback and token limits are all handled inside the agent.
+        $result = $this->agent->respond($session, $input->text, $tools, $owner);
+        if ($result['stop_reason'] === 'all_providers_failed') {
+            $this->logger->log('llm_all_failed', ['session' => $session->id]);
         }
 
         $allowed = $session->safeValues;
@@ -110,7 +103,7 @@ final class ChatService
 
         if ($output->wasBlocked()) {
             // Drop the whole turn so the blocked reply cannot be built on later.
-            $session->messages = array_slice($session->messages, 0, $historyLength);
+            [$session->messages, $session->provider] = [$previousMessages, $previousProvider];
             $this->logger->log('reply_blocked', ['session' => $session->id, 'reasons' => $output->blockedReasons]);
         } elseif ($output->redactions !== []) {
             $this->logger->log('reply_redacted', ['session' => $session->id, 'kinds' => $output->redactions]);
@@ -121,6 +114,7 @@ final class ChatService
             'session' => $session->id,
             'customer' => Logger::pseudonym($owner),
             'stop_reason' => $result['stop_reason'],
+            'provider' => $result['provider'] ?? '',
             'turn' => $session->userTurns,
         ]);
 
