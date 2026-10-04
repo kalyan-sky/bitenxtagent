@@ -45,7 +45,7 @@ final class InMemoryFirestore extends FirestoreClient
         $counts = [];
         foreach ($counters as $c) {
             $key = $c['collection'] . '/' . $c['id'];
-            $count = (int) ($this->docs[$key]['count']['integerValue'] ?? 0) + 1;
+            $count = (int) ($this->docs[$key]['count']['integerValue'] ?? 0) + ($c['by'] ?? 1);
             $this->docs[$key] = ['count' => ['integerValue' => (string) $count], 'expireAt' => self::timestamp($c['expireAt'])];
             $counts[] = $count;
         }

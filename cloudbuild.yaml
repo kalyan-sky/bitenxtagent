@@ -3,8 +3,8 @@
 # Use it from a Cloud Build trigger on pushes to `main` (see docs/DEPLOY-CONSOLE.md).
 # Change the defaults below in the trigger's "Substitution variables" if needed.
 #
-# The deploy step only sets the image, the runtime service account, the API key
-# secret and sizing. Environment variables (Magento URL, allowed origins, ...)
+# The deploy step only sets the image, the runtime service account, the AI API
+# key secrets and sizing. Environment variables (Magento URL, allowed origins, ...)
 # are managed in the Cloud Run console and are kept on every deploy.
 
 substitutions:
@@ -12,7 +12,9 @@ substitutions:
   _SERVICE: bitenxt-support-agent      # Cloud Run service name
   _AR_REPO: bitenxt                    # Artifact Registry Docker repository
   _RUNTIME_SA: bitenxt-support-agent   # service account the service runs as (name only)
-  _API_KEY_SECRET: anthropic-api-key   # Secret Manager secret holding the Anthropic API key
+  # AI API keys from Secret Manager, as ENV_VAR=secret-name:version pairs (comma-separated).
+  # Add a pair here when you add a provider to LLM_PROVIDERS.
+  _SECRETS: LLM_GEMINI_API_KEY=gemini-api-key:latest,LLM_CLAUDE_API_KEY=anthropic-api-key:latest
 
 steps:
   # 1. Unit tests: a failing test stops the pipeline before anything is deployed.
@@ -50,7 +52,7 @@ steps:
       - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:$BUILD_ID
       - --region=${_REGION}
       - --service-account=${_RUNTIME_SA}@$PROJECT_ID.iam.gserviceaccount.com
-      - --update-secrets=ANTHROPIC_API_KEY=${_API_KEY_SECRET}:latest
+      - --update-secrets=${_SECRETS}
       - --allow-unauthenticated
       - --port=8080
       - --cpu=1

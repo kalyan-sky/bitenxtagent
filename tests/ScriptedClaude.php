@@ -18,9 +18,9 @@ final class ScriptedClaude implements ClaudeGateway
     {
     }
 
-    public function create(string $system, array $tools, array $messages): BetaMessage
+    public function create(string $system, array $tools, array $messages, int $maxTokens = 1024): BetaMessage
     {
-        $this->requests[] = ['system' => $system, 'tools' => $tools, 'messages' => $messages];
+        $this->requests[] = ['system' => $system, 'tools' => $tools, 'messages' => $messages, 'maxTokens' => $maxTokens];
         $next = array_shift($this->responses) ?? throw new \LogicException('No scripted response left');
 
         return BetaMessage::fromArray($next + [

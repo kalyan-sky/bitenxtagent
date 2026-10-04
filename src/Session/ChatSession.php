@@ -40,6 +40,8 @@ final class ChatSession
         public int $updatedAt = 0,
         public array $transcript = [],
         public string $title = '',
+        /** which AI provider's format $messages is in (e.g. "gemini"); empty = none yet */
+        public string $provider = '',
     ) {
     }
 
@@ -148,6 +150,8 @@ final class ChatSession
             updatedAt: (int) ($data['updatedAt'] ?? 0),
             transcript: array_values($data['transcript'] ?? []),
             title: (string) ($data['title'] ?? ''),
+            // Conversations saved before multi-provider support are Claude-format.
+            provider: (string) ($data['provider'] ?? (($data['messages'] ?? []) !== [] ? 'claude' : '')),
         );
     }
 

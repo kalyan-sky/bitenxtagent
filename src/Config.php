@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Bitenxt\SupportAgent;
 
+use Bitenxt\SupportAgent\Llm\ProviderSettings;
+
 /**
  * Typed view over environment variables. Secrets are read once here and never
  * passed to the model or written to logs.
@@ -11,9 +13,8 @@ namespace Bitenxt\SupportAgent;
 final class Config
 {
     public function __construct(
-        public readonly string $anthropicApiKey,
-        public readonly string $model,
-        public readonly string $effort,
+        /** @var list<ProviderSettings> AI providers in order: primary first, then fallbacks */
+        public readonly array $llmProviders,
         public readonly string $magentoGraphqlUrl,
         public readonly int $magentoTimeoutSeconds,
         /** @var list<string> */
@@ -42,6 +43,12 @@ final class Config
         public readonly int $trustedProxyHops = 0,
         /** a quiet spell longer than this starts a fresh conversation (the window keeps earlier messages) */
         public readonly int $conversationIdleSeconds = 1800,
+        /** most tokens one AI reply may generate */
+        public readonly int $maxOutputTokens = 1024,
+        /** token limits (input + output); 0 = no limit */
+        public readonly int $tokenLimitCustomerPerDay = 200000,
+        public readonly int $tokenLimitGlobalPerHour = 1000000,
+        public readonly int $tokenLimitGlobalPerDay = 5000000,
     ) {
     }
 
@@ -55,9 +62,7 @@ final class Config
             ($value = getenv($key)) === false || $value === '' ? $default : $value;
 
         return new self(
-            anthropicApiKey: $env('ANTHROPIC_API_KEY'),
-            model: $env('CLAUDE_MODEL', 'claude-opus-5-5'),
-            effort: $env('CLAUDE_EFFORT', 'low'),
+            llmProviders: ProviderSettings::fromEnvironment($env),
             magentoGraphqlUrl: $env('MAGENTO_GRAPHQL_URL'),
             magentoTimeoutSeconds: (int) $env('MAGENTO_TIMEOUT_SECONDS', '10'),
             allowedOrigins: array_values(array_filter(array_map('trim', explode(',', $env('ALLOWED_ORIGINS'))))),
@@ -79,6 +84,10 @@ final class Config
             promptCanary: $env('PROMPT_CANARY'),
             trustedProxyHops: (int) $env('TRUSTED_PROXY_HOPS', '0'),
             conversationIdleSeconds: 60 * (int) $env('CONVERSATION_IDLE_MINUTES', '30'),
+            maxOutputTokens: (int) $env('MAX_OUTPUT_TOKENS', '1024'),
+            tokenLimitCustomerPerDay: (int) $env('TOKEN_LIMIT_CUSTOMER_PER_DAY', '200000'),
+            tokenLimitGlobalPerHour: (int) $env('TOKEN_LIMIT_GLOBAL_PER_HOUR', '1000000'),
+            tokenLimitGlobalPerDay: (int) $env('TOKEN_LIMIT_GLOBAL_PER_DAY', '5000000'),
         );
     }
 
