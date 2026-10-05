@@ -70,6 +70,8 @@ Artifact Registry, Firestore, secret, service accounts, GitHub trigger, environm
 click by click in **[docs/DEPLOY-CONSOLE.md](docs/DEPLOY-CONSOLE.md)**.
 To keep the monthly bill under $10 (Gemini Flash-Lite, free-tier Cloud Run, billing alert), follow
 **[docs/LOW-COST.md](docs/LOW-COST.md)**.
+For the Pro frontend team: the chat as a themable web component, `<bitenxt-chat>`, is described in
+**[docs/WEB-COMPONENT.md](docs/WEB-COMPONENT.md)**.
 
 ### Alternative: one command from a terminal
 
@@ -247,7 +249,10 @@ fallbacks (`fallbacks: "default"`), and the system prompt and tools are prompt-c
 
 ```
 public/index.php            HTTP entry: CORS, auth header, client IP, JSON in/out, no error output
-src/Widget/widget.js        Embeddable chat widget, served at /widget.js (renders text only, no HTML)
+src/Widget/bitenxt-chat.js  <bitenxt-chat> web component, served at /bitenxt-chat.js (themable; docs/WEB-COMPONENT.md)
+src/Widget/bitenxt-chat.d.ts TypeScript types for the web component
+src/Widget/widget.js        Older one-tag chat widget, served at /widget.js (renders text only, no HTML)
+public/demo-component.html  Test page for the web component (theming, inline mode)
 public/demo.html            Test page served by the service
 Dockerfile, docker/         Cloud Run image (PHP 8.3 + Apache on $PORT)
 cloudbuild.yaml             Cloud Build pipeline: test, build, push, deploy (docs/DEPLOY-CONSOLE.md)

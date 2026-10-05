@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>bitenxt-chat demo</title>
+  <style>
+    body { font: 15px/1.5 "Poppins", system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color: #1d2327; }
+    input, select { padding: 8px; font: inherit; }
+    input[type=password] { width: 100%; box-sizing: border-box; }
+    button { margin-top: 8px; padding: 8px 14px; font: inherit; cursor: pointer; }
+    code { background: #f0f2f3; padding: 1px 4px; border-radius: 3px; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+    #inline-box { height: 520px; margin-top: 16px; display: none; }
+
+    /* Theming from the host page: CSS custom properties and ::part(). */
+    bitenxt-chat {
+      --bnx-primary: #d9518e;          /* Pro pink */
+      --bnx-font: "Poppins", system-ui, sans-serif;
+      --bnx-radius: 16px;
+    }
+    bitenxt-chat::part(header) { letter-spacing: .2px; }
+  </style>
+</head>
+<body>
+  <h1>&lt;bitenxt-chat&gt; demo</h1>
+  <p>Paste a <strong>UAT</strong> customer token to act as that customer (kept only in this browser's
+     localStorage). The chat appears only while a token is set.</p>
+  <input id="token" type="password" placeholder="Magento customer token" autocomplete="off">
+  <div class="row">
+    <button id="save" type="button">Use this token</button>
+    <button id="clear" type="button">Log out</button>
+    <span id="state"></span>
+  </div>
+  <div class="row">
+    <label>Primary colour <input id="color" type="color" value="#d9518e"></label>
+    <label>Layout
+      <select id="mode"><option value="">Floating button</option><option value="inline">Inline (in the page)</option></select>
+    </label>
+    <button id="ask" type="button">Ask "my orders" from a page button</button>
+  </div>
+  <p id="events"></p>
+
+  <!-- Floating chat (default) -->
+  <bitenxt-chat id="chat" token-key="demoCustomerToken" heading="BiteNXT Support"></bitenxt-chat>
+  <!-- Inline chat, e.g. for a "Talk to Experts" page -->
+  <div id="inline-box"></div>
+
+  <script src="/bitenxt-chat.js"></script>
+  <script>
+    var KEY = 'demoCustomerToken';
+    var chat = document.getElementById('chat');
+    function show() {
+      var has = false;
+      try { has = !!localStorage.getItem(KEY); } catch (e) {}
+      document.getElementById('state').textContent = has ? 'Logged in' : 'Logged out: no chat';
+    }
+    document.getElementById('save').onclick = function () {
+      try { localStorage.setItem(KEY, document.getElementById('token').value.trim()); } catch (e) {}
+      document.getElementById('token').value = '';
+      show();
+    };
+    document.getElementById('clear').onclick = function () {
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      show();
+    };
+    document.getElementById('color').oninput = function (e) {
+      document.querySelectorAll('bitenxt-chat').forEach(function (c) { c.style.setProperty('--bnx-primary', e.target.value); });
+    };
+    document.getElementById('mode').onchange = function (e) {
+      var box = document.getElementById('inline-box');
+      box.textContent = '';
+      chat.hidden = e.target.value === 'inline';
+      box.style.display = e.target.value === 'inline' ? 'block' : 'none';
+      if (e.target.value === 'inline') {
+        var inline = document.createElement('bitenxt-chat');
+        inline.setAttribute('mode', 'inline');
+        inline.setAttribute('token-key', KEY);
+        inline.style.setProperty('--bnx-primary', document.getElementById('color').value);
+        box.appendChild(inline);
+      }
+    };
+    document.getElementById('ask').onclick = function () { chat.send('my orders'); };
+    ['bitenxt-open', 'bitenxt-close', 'bitenxt-reply', 'bitenxt-auth-required', 'bitenxt-feedback'].forEach(function (name) {
+      document.addEventListener(name, function () { document.getElementById('events').textContent = 'Last event: ' + name; });
+    });
+    show();
+  </script>
+</body>
+</html>
