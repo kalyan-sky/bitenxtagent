@@ -194,7 +194,8 @@ final class MagentoCustomerDataSourceTest extends TestCase
             }
             self::assertSame('own-cart', $request['variables']['id']);
 
-            return ['data' => ['getPatientFromCart' => ['name' => 'Asha Verma'], 'getDoctorFromCart' => ['doctor_name' => 'Dr. Rao']]];
+            return ['data' => ['getPatientFromCart' => ['quote_id' => '962', 'patient_id' => 312, 'patient_name' => 'Asha Verma'],
+                'getDoctorFromCart' => ['doctor_name' => 'Dr. Rao']]];
         })->cartSummary('tok');
 
         self::assertSame('Asha V.', OrderPresenter::cart($cart)['patient']);

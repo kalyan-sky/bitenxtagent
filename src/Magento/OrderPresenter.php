@@ -147,7 +147,7 @@ final class OrderPresenter
                 static fn ($c) => is_array($c) ? self::str($c['code'] ?? null) : null,
                 $cart['applied_coupons'] ?? [],
             ))) ?: null,
-            'patient' => self::patientLabel($cart['patient']['name'] ?? null),
+            'patient' => self::patientLabel($cart['patient']['patient_name'] ?? $cart['patient']['name'] ?? null),
             'doctor' => self::str($cart['doctor']['doctor_name'] ?? $cart['custom_shipping_attributes']['doctor_name'] ?? null),
             'scan_upload' => $scan,
         ], static fn ($v) => $v !== null && $v !== '');

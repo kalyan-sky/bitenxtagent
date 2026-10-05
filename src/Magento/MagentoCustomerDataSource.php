@@ -219,7 +219,8 @@ final class MagentoCustomerDataSource implements CustomerDataSource
         // chat, so these ID-based lookups can only ever read this customer's cart.
         $cartId = (string) $cart['id'];
         $extra = [
-            'patient' => ['query ($id: String) { getPatientFromCart(cart_id: $id) { name } }', 'getPatientFromCart'],
+            // Field names as Pro itself uses them (getPatientFromCart → PatientCartItem).
+            'patient' => ['query ($id: String!) { getPatientFromCart(cart_id: $id) { patient_name } }', 'getPatientFromCart'],
             'doctor' => ['query ($id: String!) { getDoctorFromCart(cart_id: $id) { doctor_name } }', 'getDoctorFromCart'],
             'scan' => ['query ($id: String!) { kixrScanStatus(cart_id: $id) { status files { status } } }', 'kixrScanStatus'],
         ];
