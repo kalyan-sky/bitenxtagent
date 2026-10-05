@@ -54,7 +54,9 @@ if ($path === '/widget.js') {
     header('Cache-Control: public, max-age=300');
     // The support phone comes from SUPPORT_PHONE, so it changes without editing the widget.
     $phone = substr((string) json_encode($config->supportPhone, JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG), 1, -1);
-    echo str_replace('__BNX_SUPPORT_PHONE__', $phone, (string) file_get_contents(__DIR__ . '/widget.js'));
+    header('Access-Control-Allow-Origin: *');
+    // Kept outside public/ so Apache can't serve it raw, without the phone filled in.
+    echo str_replace('__BNX_SUPPORT_PHONE__', $phone, (string) file_get_contents(dirname(__DIR__) . '/src/Widget/widget.js'));
     exit;
 }
 $routes = [

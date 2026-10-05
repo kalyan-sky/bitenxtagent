@@ -497,6 +497,21 @@ final class ChatServiceTest extends TestCase
         self::assertStringNotContainsString('Michael', (string) json_encode($result));
     }
 
+    public function testPatientListComesFromTheClinicsOwnPatients(): void
+    {
+        $this->magento->patientLists['11'] = [['id' => '5', 'name' => 'Kalyan Kumar'], ['id' => '6', 'name' => 'Narendra']];
+        $this->magento->patientLists['22'] = [['id' => '9', 'name' => 'Other Clinic Patient']];
+        $claude = new ScriptedClaude([
+            ScriptedClaude::toolCall('list_patients', ['name' => ''], 'toolu_a'),
+            ScriptedClaude::text('Your patients are Kalyan K. and Narendra.'),
+        ]);
+        $this->service($claude)->handle('list my patients', 'token-clinic-a', '10.0.0.1');
+
+        $result = self::toolResults($claude)[0];
+        self::assertSame([['patient' => 'Kalyan K.'], ['patient' => 'Narendra']], $result['patients']);
+        self::assertStringNotContainsString('Other Clinic', (string) json_encode($result));
+    }
+
     public function testNoToolAcceptsAnIdentityChosenByTheModel(): void
     {
         foreach (SupportTools::definitions() as $tool) {
