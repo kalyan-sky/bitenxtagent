@@ -68,6 +68,8 @@ The widget and the chat API are both served from the Cloud Run service URL.
 Registry → deploy to Cloud Run. If a test fails, nothing is deployed. The one-time console setup (APIs,
 Artifact Registry, Firestore, secret, service accounts, GitHub trigger, environment variables) is described
 click by click in **[docs/DEPLOY-CONSOLE.md](docs/DEPLOY-CONSOLE.md)**.
+To keep the monthly bill under $10 (Gemini Flash-Lite, free-tier Cloud Run, billing alert), follow
+**[docs/LOW-COST.md](docs/LOW-COST.md)**.
 
 ### Alternative: one command from a terminal
 
@@ -219,9 +221,11 @@ See `.env.example`. Key settings:
 | `LLM_GEMINI_API_KEY` / `LLM_OPENROUTER_API_KEY` | (secrets) | From Secret Manager. Several comma-separated keys are tried in turn on 401/403/429. |
 | `LLM_CLAUDE_MODEL` / `LLM_CLAUDE_EFFORT` | `claude-opus-5-5` / `low` | Only if you call Anthropic directly (`claude` in `LLM_PROVIDERS`) |
 | `LLM_<NAME>_DAILY_TOKEN_LIMIT` | 0 (none) | Per-provider cap; over it, the next provider answers |
-| `MAX_OUTPUT_TOKENS` | 1024 | Most tokens one AI reply can produce |
-| `TOKEN_LIMIT_CUSTOMER_PER_DAY` | 200000 | Per logged-in customer (input + output tokens) |
-| `TOKEN_LIMIT_GLOBAL_PER_HOUR` / `_PER_DAY` | 1000000 / 5000000 | Whole service |
+| `MAX_OUTPUT_TOKENS` | 400 | Most tokens one AI reply can produce |
+| `TOKEN_LIMIT_CUSTOMER_PER_DAY` | 100000 | Per logged-in customer (input + output tokens) |
+| `TOKEN_LIMIT_GLOBAL_PER_HOUR` / `_PER_DAY` | 200000 / 1000000 | Whole service (1M/day caps Gemini Flash-Lite at about $5 a month) |
+| `AI_HISTORY_TURNS` | 6 | Only the last N question/answer pairs are sent to the AI (keeps each call small) |
+| `FAST_PATH` | on | Answer order status and "my orders" from a template, with no AI call. `off` sends everything to the AI |
 | `MAX_MESSAGE_CHARS` | 2000 | |
 | `HISTORY_RETENTION_DAYS` | 90 | How long a customer's chat history is kept after their last message |
 | `CONVERSATION_IDLE_MINUTES` | 30 | Quiet time after which the bot starts a fresh conversation (the thread is kept) |

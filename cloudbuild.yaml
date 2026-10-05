@@ -61,6 +61,7 @@ steps:
       - --concurrency=20
       - --timeout=120
       - --min-instances=0
+      - --cpu-boost              # faster cold starts at almost no cost
       - --max-instances=10
       - --quiet
 

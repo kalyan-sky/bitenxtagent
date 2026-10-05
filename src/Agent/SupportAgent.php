@@ -19,15 +19,16 @@ use Bitenxt\SupportAgent\Support\Logger;
  * answers. Every single AI call is checked against the token budget first.
  *
  * Each provider keeps the conversation in its own format. When the answering
- * provider differs from the one that holds the history, it starts from a
- * fresh context seeded with the last messages the customer saw.
+ * provider differs from the one that holds the history, or the history is
+ * longer than $historyTurns, it starts from a fresh context seeded with the
+ * last messages the customer saw. That keeps the tokens per call (the cost)
+ * flat however long the chat gets.
  *
  * History is append-only and only committed when a turn finishes cleanly.
  */
 final class SupportAgent
 {
     public const MAX_TOOL_ROUNDS = 6;
-    public const SEED_MESSAGES = 10;
     public const FALLBACK_REPLY = "Sorry, I couldn't complete that just now. Please try again in a moment, "
         . 'or ask me to connect you with our support team.';
     public const UNAVAILABLE_REPLY = 'Chat is temporarily unavailable. Please try again later.';
@@ -40,6 +41,7 @@ final class SupportAgent
         private readonly Logger $logger,
         private readonly int $maxOutputTokens = 1024,
         private readonly string $customerLimitReply = "You've reached today's chat limit. Please try again tomorrow.",
+        private readonly int $historyTurns = 6,
     ) {
     }
 
@@ -81,10 +83,14 @@ final class SupportAgent
      */
     private function run(LlmProvider $provider, ChatSession $session, string $userText, SupportTools $tools, string $customerKey): array
     {
-        $messages = match ($session->provider) {
-            $provider->name() => $session->messages,
-            '' => [],                                      // no AI history yet in this conversation
-            default => $this->seed($provider, $session),   // another provider holds it: switch over
+        $messages = match (true) {
+            $session->provider === '' => [],               // no AI history yet in this conversation
+            // Same provider and still short: keep the full history, tool results included.
+            $session->provider === $provider->name() && count($session->transcript) <= 2 * $this->historyTurns
+                => $session->messages,
+            // Another provider (or the fast path) answered last, or the history is long:
+            // start from the last few messages the customer saw, which keeps every call small.
+            default => $this->seed($provider, $session),
         };
         $messages[] = $provider->userMessage($userText);
         $definitions = SupportTools::definitions();
@@ -149,7 +155,7 @@ final class SupportAgent
      */
     private function seed(LlmProvider $provider, ChatSession $session): array
     {
-        $recent = array_slice($session->transcript, -self::SEED_MESSAGES);
+        $recent = array_slice($session->transcript, -2 * $this->historyTurns);
         while ($recent !== [] && $recent[0]['role'] !== 'user') {
             array_shift($recent);
         }
