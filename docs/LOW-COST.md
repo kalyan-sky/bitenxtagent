@@ -32,7 +32,7 @@ Same screen. These are the new defaults, so you only need them if you set other 
 |---|---|
 | `TOKEN_LIMIT_GLOBAL_PER_DAY` | `1000000` |
 | `TOKEN_LIMIT_GLOBAL_PER_HOUR` | `200000` |
-| `TOKEN_LIMIT_CUSTOMER_PER_DAY` | `100000` |
+| `TOKEN_LIMIT_CUSTOMER_PER_DAY` | `300000` (about 20–30 AI questions per clinic a day; order, coupon and cart lookups don't count) |
 | `MAX_OUTPUT_TOKENS` | `400` |
 
 ## 3. Keep Cloud Run in the free tier, with fast starts

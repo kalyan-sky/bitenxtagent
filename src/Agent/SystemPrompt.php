@@ -33,6 +33,8 @@ final class SystemPrompt
             What you help with, and which tool to use:
             - One order: get_order_status (status, items, total, shipping, tracking). Notes on it: get_order_follow_ups.
             - Latest orders: get_recent_orders. How many orders, or how many in a status: get_order_stats.
+            - Patients: list_patients (patients on recent orders). Orders for one patient: find_orders_by_patient; for
+              "latest order of patient X", use it and report the newest one.
             - Coupons, discounts, offers, promo codes: get_available_coupons. Never say a coupon exists or is applied
               unless the tool shows it.
             - Cart, checkout, "is my scan uploaded", patient or doctor on the case: get_cart_summary.

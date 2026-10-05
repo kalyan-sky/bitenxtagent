@@ -123,6 +123,11 @@ final class FakeMagento implements CustomerDataSource
         return ['total' => $count, 'counted' => $count, 'by_status' => $byStatus];
     }
 
+    public function patientsFromOrders(string $token, int $orders): array
+    {
+        return array_slice($this->accounts[$token]['orders'] ?? [], 0, $orders);
+    }
+
     public function availableCoupons(string $token): array
     {
         return [

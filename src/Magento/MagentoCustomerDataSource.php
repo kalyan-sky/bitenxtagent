@@ -170,6 +170,19 @@ final class MagentoCustomerDataSource implements CustomerDataSource
         return ['total' => (int) ($orders['total_count'] ?? $counted), 'counted' => $counted, 'by_status' => $byStatus];
     }
 
+    public function patientsFromOrders(string $token, int $orders): array
+    {
+        // customerAllOrders takes no customer ID, so it only returns this customer's orders.
+        $data = $this->client->query(
+            'query ($pageSize: Int!) { customerAllOrders(currentPage: 1, pageSize: $pageSize) { items { number order_date patient_name } } }',
+            ['pageSize' => $orders],
+            $token,
+            true,
+        );
+
+        return array_values(array_filter($data['customerAllOrders']['items'] ?? [], 'is_array'));
+    }
+
     public function availableCoupons(string $token): array
     {
         $data = $this->queryDroppingUnknownFields(
