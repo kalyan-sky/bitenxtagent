@@ -52,7 +52,9 @@ if ($path === '/health') {
 if ($path === '/widget.js') {
     header('Content-Type: application/javascript; charset=utf-8');
     header('Cache-Control: public, max-age=300');
-    readfile(__DIR__ . '/widget.js');
+    // The support phone comes from SUPPORT_PHONE, so it changes without editing the widget.
+    $phone = substr((string) json_encode($config->supportPhone, JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG), 1, -1);
+    echo str_replace('__BNX_SUPPORT_PHONE__', $phone, (string) file_get_contents(__DIR__ . '/widget.js'));
     exit;
 }
 $routes = [

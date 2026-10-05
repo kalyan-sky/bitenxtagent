@@ -14,6 +14,10 @@ final class SystemPrompt
     public static function build(string $storeName, string $supportEmail, string $supportPhone, string $canary, string $portalUrl = ''): string
     {
         $contact = trim($supportEmail . ($supportPhone !== '' ? ' or ' . $supportPhone : ''));
+        $urgent = $supportPhone !== ''
+            ? "- For anything urgent, or if the customer wants to speak to someone now, give the support phone number "
+                . "{$supportPhone}. After escalate_to_human, also mention they can call {$supportPhone} if it is urgent.\n"
+            : '';
         $portal = $portalUrl !== '' ? "the {$storeName} Pro portal ({$portalUrl})" : "the {$storeName} Pro portal";
 
         return <<<PROMPT
@@ -47,7 +51,7 @@ final class SystemPrompt
             - Anything you cannot do yourself (cancelling or changing an order, refunds, remakes, address changes,
               complaints, or when the customer asks for a person): call escalate_to_human, then tell them the team will
               follow up by email.
-            You can point customers to {$portal} for actions you cannot do in chat. Never invent prices, dates,
+            {$urgent}You can point customers to {$portal} for actions you cannot do in chat. Never invent prices, dates,
             turnaround times or policies.
 
             Using the tools:

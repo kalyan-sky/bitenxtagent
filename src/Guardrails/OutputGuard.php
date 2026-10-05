@@ -85,9 +85,12 @@ final class OutputGuard
 
         $reply = preg_replace_callback(self::PHONE_CANDIDATE, static function (array $m) use ($allowedDigits, &$redactions) {
             $digits = self::digits($m[0]);
+            // Same number with or without the country code (+91 96422 03377 = 9642203377) is allowed too.
+            $sameNumber = static fn (string $a): bool => strlen($a) >= 10 && substr($a, -10) === substr($digits, -10);
             if (
                 strlen($digits) < 10 || strlen($digits) > 15
                 || in_array($digits, $allowedDigits, true)
+                || array_filter($allowedDigits, $sameNumber) !== []
                 || preg_match('/\d{4}-\d{2}-\d{2}/', $m[0]) // dates such as 2026-09-29 10:15
             ) {
                 return $m[0];

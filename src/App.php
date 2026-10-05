@@ -71,7 +71,12 @@ final class App
             $logger,
             $config->maxOutputTokens,
             "You've reached today's chat limit. Please try again tomorrow"
-                . ($config->supportEmail !== '' ? ', or email ' . $config->supportEmail . ' if it is urgent.' : '.'),
+                . match (true) {
+                    $config->supportPhone !== '' => ', or call ' . $config->supportPhone
+                        . ($config->supportEmail !== '' ? ' / email ' . $config->supportEmail : '') . ' if it is urgent.',
+                    $config->supportEmail !== '' => ', or email ' . $config->supportEmail . ' if it is urgent.',
+                    default => '.',
+                },
             $config->aiHistoryTurns,
         );
         return new ChatService(

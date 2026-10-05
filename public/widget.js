@@ -56,6 +56,9 @@
     var apiUrl = options.apiUrl || defaultApiUrl;
     var getToken = options.getToken || function () { return pushedToken; };
     var title = options.title || 'BiteNXT Support';
+    // Filled in by the server from SUPPORT_PHONE when it serves this file.
+    var serverPhone = '__BNX_SUPPORT_PHONE__';
+    var supportPhone = options.supportPhone || (serverPhone.indexOf('__') === 0 ? '' : serverPhone);
     var greeting = options.greeting ||
       'Hi! I can help with your order status, tracking, products and account questions. How can I help?';
 
@@ -86,7 +89,8 @@
       '.bnx-rate button{border:0;background:none;cursor:pointer;font-size:14px;opacity:.55;padding:2px 4px}',
       '.bnx-rate button:hover{opacity:1}',
       '.bnx-rate span{color:#6b7680;font-size:12px}',
-      '.bnx-typing{color:#6b7680;font-style:italic}'
+      '.bnx-typing{color:#6b7680;font-style:italic}',
+      '.bnx-call{display:block;background:#e8f3f6;color:#0b6e8a;text-decoration:none;padding:6px 16px;font-size:13px;border-bottom:1px solid #e1e5e8}'
     ].join('');
     document.head.appendChild(style);
 
@@ -103,6 +107,10 @@
     form.appendChild(input);
     form.appendChild(send);
     panel.appendChild(head);
+    if (supportPhone) {
+      panel.appendChild(el('a', { 'class': 'bnx-call', href: 'tel:' + supportPhone.replace(/[^\d+]/g, '') },
+        '📞 Urgent? Call us: ' + supportPhone));
+    }
     panel.appendChild(log);
     panel.appendChild(form);
     document.body.appendChild(panel);
@@ -358,6 +366,7 @@
   //   data-token-source="localStorage"   localStorage (default) | sessionStorage | cookie
   //   data-token-path="auth.token"       only if the stored value is JSON
   //   data-title="BiteNXT Support"       optional panel title
+  //   data-support-phone="+91 …"         optional; defaults to the service's SUPPORT_PHONE
   if (script && script.hasAttribute('data-auto-init')) {
     var tokenKey = script.getAttribute('data-token-key');
     var tokenSource = script.getAttribute('data-token-source') || 'localStorage';
@@ -369,6 +378,7 @@
       }
       init({
         title: script.getAttribute('data-title') || undefined,
+        supportPhone: script.getAttribute('data-support-phone') || undefined,
         getToken: tokenReader(tokenSource, tokenKey, tokenPath)
       });
     };

@@ -172,15 +172,21 @@ final class MagentoCustomerDataSource implements CustomerDataSource
 
     public function patientsFromOrders(string $token, int $orders): array
     {
-        // customerAllOrders takes no customer ID, so it only returns this customer's orders.
-        $data = $this->client->query(
-            'query ($pageSize: Int!) { customerAllOrders(currentPage: 1, pageSize: $pageSize) { items { number order_date patient_name } } }',
-            ['pageSize' => $orders],
-            $token,
-            true,
-        );
+        $rows = [];
+        foreach ([
+            'customerAllOrders' => 'query ($pageSize: Int!) { customerAllOrders(currentPage: 1, pageSize: $pageSize) { items { number order_date patient_name } } }',
+            'customer' => 'query ($pageSize: Int!) { customer { orders(currentPage: 1, pageSize: $pageSize, sort: { sort_field: CREATED_AT, sort_direction: DESC }) '
+                . '{ items { number order_date patient_name } } } }',
+        ] as $source => $query) {
+            $rows = $this->ordersOrEmpty($query, ['pageSize' => $orders], $source, $token);
+            $named = count(array_filter($rows, static fn ($o) => trim((string) ($o['patient_name'] ?? '')) !== ''));
+            $this->logPatientSearch('list_' . $source, $rows, $named);
+            if ($named > 0) {
+                return $rows;
+            }
+        }
 
-        return array_values(array_filter($data['customerAllOrders']['items'] ?? [], 'is_array'));
+        return $rows;
     }
 
     public function availableCoupons(string $token): array
@@ -268,13 +274,88 @@ final class MagentoCustomerDataSource implements CustomerDataSource
 
     public function findOwnOrdersByPatient(string $token, string $patientName, int $limit): array
     {
-        // customerAllOrders is the Pro order-history query; it takes no
-        // customer ID, so it is scoped to the token.
-        $query = 'query ($name: String!, $pageSize: Int!) { customerAllOrders(currentPage: 1, pageSize: $pageSize, '
-            . 'filter: { patient_name: $name }) { items { number order_date order_status_title patient_name } } }';
-        $data = $this->client->query($query, ['name' => $patientName, 'pageSize' => $limit], $token, true);
+        $needle = mb_strtolower(trim($patientName));
+        $matches = static fn (array $rows) => array_values(array_filter(
+            $rows,
+            static fn (array $o) => str_contains(mb_strtolower(trim((string) ($o['patient_name'] ?? ''))), $needle),
+        ));
 
-        return array_values(array_filter($data['customerAllOrders']['items'] ?? [], 'is_array')); // a failed row comes back as null
+        // 1. Pro's own order-history search. customerAllOrders takes no
+        //    customer ID, so it only ever searches this customer's orders.
+        $rows = $this->ordersOrEmpty(
+            'query ($name: String!, $pageSize: Int!) { customerAllOrders(currentPage: 1, pageSize: $pageSize, '
+                . 'filter: { patient_name: $name }) { items { number order_date order_status_title patient_name } } }',
+            ['name' => trim($patientName), 'pageSize' => $limit],
+            'customerAllOrders',
+            $token,
+        );
+        if ($rows !== []) {
+            $this->logPatientSearch('search_filter', $rows, count($rows));
+
+            return array_slice($rows, 0, $limit);
+        }
+
+        // 2. That search may need the full name, or be case-sensitive: scan the
+        //    latest orders ourselves for part of the name, in any case.
+        foreach ([
+            'customerAllOrders' => 'query { customerAllOrders(currentPage: 1, pageSize: 100) { items { number order_date order_status_title patient_name } } }',
+            'customer' => 'query { customer { orders(currentPage: 1, pageSize: 100, sort: { sort_field: CREATED_AT, sort_direction: DESC }) '
+                . '{ items { number order_date status patient_name } } } }',
+        ] as $source => $query) {
+            $rows = $this->ordersOrEmpty($query, [], $source, $token);
+            $found = $matches($rows);
+            $this->logPatientSearch('scan_' . $source, $rows, count($found));
+            if ($found !== []) {
+                usort($found, static fn ($a, $b) => strcmp((string) ($b['order_date'] ?? ''), (string) ($a['order_date'] ?? '')));
+
+                return array_slice($found, 0, $limit);
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * Order rows from customerAllOrders or customer.orders; an error (other
+     * than an expired login) counts as no rows so the next way is tried.
+     *
+     * @param array<string, mixed> $variables
+     * @return list<array<string, mixed>>
+     */
+    private function ordersOrEmpty(string $query, array $variables, string $source, string $token): array
+    {
+        try {
+            $data = $this->client->query($query, $variables, $token, true);
+        } catch (MagentoAuthException $e) {
+            throw $e;
+        } catch (MagentoException $e) {
+            $this->logger?->log('magento_error', ['query' => $source, 'detail' => substr($e->getMessage(), 0, 400)]);
+
+            return [];
+        }
+        $items = $source === 'customer' ? ($data['customer']['orders']['items'] ?? []) : ($data[$source]['items'] ?? []);
+
+        return array_values(array_filter($items, 'is_array'));
+    }
+
+    /**
+     * How the patient search went, without any names: if rows come back but
+     * none has a patient name, Magento's patient_name field is failing.
+     *
+     * @param list<array<string, mixed>> $rows
+     */
+    private function logPatientSearch(string $strategy, array $rows, int $matched): void
+    {
+        $this->logger?->log('patient_search', [
+            'strategy' => $strategy,
+            'orders' => count($rows),
+            'orders_with_patient_name' => count(array_filter($rows, static fn ($o) => trim((string) ($o['patient_name'] ?? '')) !== '')),
+            'matched' => $matched,
+            'partial_errors' => array_values(array_unique(array_map(
+                static fn ($e) => implode('.', array_filter((array) ($e['path'] ?? []), 'is_string')),
+                $this->client->lastPartialErrors,
+            ))),
+        ]);
     }
 
     public function orderFollowUps(string $token, string $orderNumber): array
