@@ -9,6 +9,7 @@ use Bitenxt\SupportAgent\Agent\SupportTools;
 use Bitenxt\SupportAgent\Budget\FileTokenCounter;
 use Bitenxt\SupportAgent\Budget\TokenBudget;
 use Bitenxt\SupportAgent\Chat\ChatService;
+use Bitenxt\SupportAgent\Chat\FastPath;
 use Bitenxt\SupportAgent\Guardrails\InputGuard;
 use Bitenxt\SupportAgent\Guardrails\OutputGuard;
 use Bitenxt\SupportAgent\Guardrails\FileRateLimiter;
@@ -39,7 +40,7 @@ final class ChatServiceTest extends TestCase
         exec('rm -rf ' . escapeshellarg($this->dir));
     }
 
-    private function service(ScriptedClaude $claude): ChatService
+    private function service(ScriptedClaude $claude, bool $fastPath = false, int $historyTurns = 6): ChatService
     {
         return new ChatService(
             sessions: $this->sessions,
@@ -51,12 +52,14 @@ final class ChatServiceTest extends TestCase
                 'system prompt [ref-canary]',
                 new TokenBudget(new FileTokenCounter($this->dir . '/tokens.json'), new Logger($this->dir . '/log.jsonl'), 200000, 1000000, 5000000),
                 new Logger($this->dir . '/log.jsonl'),
+                historyTurns: $historyTurns,
             ),
             magento: $this->magento,
             knowledge: new KnowledgeBase($this->dir . '/kb'),
             handoff: new HandoffNotifier($this->dir . '/handoffs.jsonl'),
             logger: new Logger($this->dir . '/log.jsonl'),
             maxTurnsPerConversation: 40,
+            fastPath: $fastPath ? new FastPath() : null,
         );
     }
 
@@ -332,6 +335,78 @@ final class ChatServiceTest extends TestCase
 
         self::assertSame('How to place an order', $kb->search('how to place order?')[0]['title']);
         self::assertSame('Uploading scans and case files', $kb->search('upload scan')[0]['title']);
+    }
+
+    public function testFastPathAnswersOrderStatusWithoutTheAi(): void
+    {
+        $claude = new ScriptedClaude([]);
+        $reply = $this->service($claude, fastPath: true)->handle('status of order 000000101?', 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertSame([], $claude->requests, 'no AI call, so no tokens spent');
+        self::assertStringContainsString('Order 000000101: In design', $reply);
+        self::assertStringContainsString('Patient: John S.', $reply);
+        self::assertStringContainsString('Zirconia Crown × 2', $reply);
+        self::assertStringContainsString('Tracking: UPS 1Z999AA10123456784', $reply);
+        self::assertStringNotContainsString('Michael', $reply);
+        self::assertStringNotContainsString('Secret St', $reply);
+    }
+
+    public function testFastPathKeepsOrdersPrivateAndListsRecentOnes(): void
+    {
+        $service = $this->service(new ScriptedClaude([]), fastPath: true);
+
+        $other = $service->handle('000000202', 'token-clinic-a', '10.0.0.1')['reply'];
+        self::assertSame("I couldn't find order 000000202 on your account. Please check the number and try again.", $other);
+
+        $list = $service->handle('my orders', 'token-clinic-a', '10.0.0.1')['reply'];
+        self::assertStringContainsString('• 000000101 · In design · 20 Sep 2026 · John S.', $list);
+        self::assertStringNotContainsString('000000202', $list);
+    }
+
+    /** @return iterable<array{string}> */
+    public static function messagesForTheAi(): iterable
+    {
+        yield ['cancel order 000000101'];
+        yield ['why is order 000000101 late?'];
+        yield ['status of 000000101 and 000000202'];
+        yield ['how do I place an order?'];
+        yield ['I need 3 crowns'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('messagesForTheAi')]
+    public function testAnythingNeedingJudgementStillGoesToTheAi(string $message): void
+    {
+        $claude = new ScriptedClaude([ScriptedClaude::text('Let me help with that.')]);
+        $this->service($claude, fastPath: true)->handle($message, 'token-clinic-a', '10.0.0.1');
+
+        self::assertCount(1, $claude->requests);
+    }
+
+    public function testAiFollowUpAfterAFastPathReplySeesThatReply(): void
+    {
+        $claude = new ScriptedClaude([ScriptedClaude::text('It ships with UPS.')]);
+        $service = $this->service($claude, fastPath: true);
+        $service->handle('track order 000000101', 'token-clinic-a', '10.0.0.1');
+        $service->handle('which courier is that with?', 'token-clinic-a', '10.0.0.1');
+
+        $sent = (string) json_encode($claude->requests[0]['messages']);
+        self::assertStringContainsString('Order 000000101: In design', $sent);
+        self::assertStringContainsString('which courier is that with?', $sent);
+    }
+
+    public function testLongChatsOnlySendRecentMessagesToTheAi(): void
+    {
+        $claude = new ScriptedClaude(array_map(fn ($i) => ScriptedClaude::text("Answer {$i}"), range(1, 4)));
+        $service = $this->service($claude, historyTurns: 1);
+        foreach (['First question', 'Second question', 'Third question', 'Fourth question'] as $question) {
+            $service->handle($question, 'token-clinic-a', '10.0.0.1');
+        }
+
+        $last = (string) json_encode(end($claude->requests)['messages']);
+        self::assertStringNotContainsString('First question', $last);
+        self::assertStringNotContainsString('Second question', $last);
+        self::assertStringContainsString('Third question', $last);
+        self::assertStringContainsString('Fourth question', $last);
     }
 
     public function testNoToolAcceptsAnIdentityChosenByTheModel(): void

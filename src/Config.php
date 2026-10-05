@@ -44,11 +44,13 @@ final class Config
         /** a quiet spell longer than this starts a fresh conversation (the window keeps earlier messages) */
         public readonly int $conversationIdleSeconds = 1800,
         /** most tokens one AI reply may generate */
-        public readonly int $maxOutputTokens = 1024,
+        public readonly int $maxOutputTokens = 400,
         /** token limits (input + output); 0 = no limit */
-        public readonly int $tokenLimitCustomerPerDay = 200000,
-        public readonly int $tokenLimitGlobalPerHour = 1000000,
-        public readonly int $tokenLimitGlobalPerDay = 5000000,
+        public readonly int $tokenLimitCustomerPerDay = 100000,
+        public readonly int $tokenLimitGlobalPerHour = 200000,
+        public readonly int $tokenLimitGlobalPerDay = 1000000,
+        public readonly int $aiHistoryTurns = 6,
+        public readonly bool $fastPathEnabled = true,
     ) {
     }
 
@@ -84,10 +86,12 @@ final class Config
             promptCanary: $env('PROMPT_CANARY'),
             trustedProxyHops: (int) $env('TRUSTED_PROXY_HOPS', '0'),
             conversationIdleSeconds: 60 * (int) $env('CONVERSATION_IDLE_MINUTES', '30'),
-            maxOutputTokens: (int) $env('MAX_OUTPUT_TOKENS', '1024'),
-            tokenLimitCustomerPerDay: (int) $env('TOKEN_LIMIT_CUSTOMER_PER_DAY', '200000'),
-            tokenLimitGlobalPerHour: (int) $env('TOKEN_LIMIT_GLOBAL_PER_HOUR', '1000000'),
-            tokenLimitGlobalPerDay: (int) $env('TOKEN_LIMIT_GLOBAL_PER_DAY', '5000000'),
+            maxOutputTokens: (int) $env('MAX_OUTPUT_TOKENS', '400'),
+            tokenLimitCustomerPerDay: (int) $env('TOKEN_LIMIT_CUSTOMER_PER_DAY', '100000'),
+            tokenLimitGlobalPerHour: (int) $env('TOKEN_LIMIT_GLOBAL_PER_HOUR', '200000'),
+            tokenLimitGlobalPerDay: (int) $env('TOKEN_LIMIT_GLOBAL_PER_DAY', '1000000'),
+            aiHistoryTurns: max(1, (int) $env('AI_HISTORY_TURNS', '6')),
+            fastPathEnabled: !in_array(strtolower($env('FAST_PATH', 'on')), ['off', 'false', '0', 'no'], true),
         );
     }
 

@@ -70,7 +70,8 @@ gcloud run deploy "$SERVICE" \
   --port 8080 \
   --cpu 1 --memory 512Mi \
   --concurrency 20 --timeout 120 \
-  --min-instances 0 --max-instances 10
+  --min-instances 0 --max-instances 10 \
+  --cpu-boost
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
 cat <<MSG

@@ -27,7 +27,7 @@ use Bitenxt\SupportAgent\Support\Logger;
  * still sees all earlier messages in the same window.
  *
  * Per message: rate limit → verify login token → current conversation → input
- * guard → agent + tools → output guard → transcript → save.
+ * guard → fast path or agent + tools → output guard → transcript → save.
  */
 final class ChatService
 {
@@ -48,6 +48,7 @@ final class ChatService
         private readonly Logger $logger,
         private readonly int $maxTurnsPerConversation,
         private readonly int $conversationIdleSeconds = 1800,
+        private readonly ?FastPath $fastPath = null,
     ) {
     }
 
@@ -89,8 +90,16 @@ final class ChatService
         [$previousMessages, $previousProvider] = [$session->messages, $session->provider];
         $tools = new SupportTools($session, $customerToken, $this->magento, $this->knowledge, $this->handoff, $this->logger);
 
-        // Provider errors, fallback and token limits are all handled inside the agent.
-        $result = $this->agent->respond($session, $input->text, $tools, $owner);
+        // Simple order lookups are answered from a template, without the AI.
+        $fast = $input->flags === [] ? $this->fastPath?->answer($input->text, $tools) : null;
+        if ($fast !== null) {
+            $result = ['reply' => $fast, 'stop_reason' => 'fast_path', 'provider' => 'fast_path'];
+            // The AI never saw this turn: its next call starts from the transcript instead.
+            [$session->messages, $session->provider] = [[], 'fast_path'];
+        } else {
+            // Provider errors, fallback and token limits are all handled inside the agent.
+            $result = $this->agent->respond($session, $input->text, $tools, $owner);
+        }
         if ($result['stop_reason'] === 'all_providers_failed') {
             $this->logger->log('llm_all_failed', ['session' => $session->id]);
         }

@@ -12,6 +12,7 @@ use Bitenxt\SupportAgent\Budget\FileTokenCounter;
 use Bitenxt\SupportAgent\Budget\FirestoreTokenCounter;
 use Bitenxt\SupportAgent\Budget\TokenBudget;
 use Bitenxt\SupportAgent\Chat\ChatService;
+use Bitenxt\SupportAgent\Chat\FastPath;
 use Bitenxt\SupportAgent\Gcp\FirestoreClient;
 use Bitenxt\SupportAgent\Guardrails\FileRateLimiter;
 use Bitenxt\SupportAgent\Guardrails\FirestoreRateLimiter;
@@ -71,6 +72,7 @@ final class App
             $config->maxOutputTokens,
             "You've reached today's chat limit. Please try again tomorrow"
                 . ($config->supportEmail !== '' ? ', or email ' . $config->supportEmail . ' if it is urgent.' : '.'),
+            $config->aiHistoryTurns,
         );
         return new ChatService(
             sessions: $sessions,
@@ -84,6 +86,7 @@ final class App
             logger: $logger,
             maxTurnsPerConversation: $config->maxTurnsPerConversation,
             conversationIdleSeconds: $config->conversationIdleSeconds,
+            fastPath: $config->fastPathEnabled ? new FastPath() : null,
         );
     }
 
