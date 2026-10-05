@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Bitenxt\SupportAgent\Magento;
 
+use Bitenxt\SupportAgent\Support\Logger;
+
 /**
  * Fixed, hand-written GraphQL documents. The model never writes GraphQL; it can
  * only trigger these queries through the tools in Agent\SupportTools.
@@ -33,8 +35,22 @@ final class MagentoCustomerDataSource implements CustomerDataSource
         shipments { tracking { carrier title number } }
         GQL;
 
-    public function __construct(private readonly GraphQLClient $client)
-    {
+    /** Standard Magento order fields only, used if the full set is rejected. */
+    private const CORE_ORDER_FIELDS = <<<'GQL'
+        number
+        order_date
+        status
+        total { grand_total { value currency } }
+        items { product_name quantity_ordered }
+        GQL;
+
+    /** Magento's default order number length (increment IDs like 000000726). */
+    private const ORDER_NUMBER_LENGTH = 9;
+
+    public function __construct(
+        private readonly GraphQLClient $client,
+        private readonly ?Logger $logger = null,
+    ) {
     }
 
     public function currentCustomer(string $token): array
@@ -59,30 +75,74 @@ final class MagentoCustomerDataSource implements CustomerDataSource
 
     public function recentOrders(string $token, int $limit): array
     {
-        $query = 'query ($pageSize: Int!) { customer { orders(currentPage: 1, pageSize: $pageSize, '
-            . 'sort: { sort_field: CREATED_AT, sort_direction: DESC }) { items { '
-            . self::ORDER_FIELDS . ' } } } }';
-        $data = $this->client->query($query, ['pageSize' => $limit], $token);
+        $data = $this->queryOrders(
+            'query ($pageSize: Int!) { customer { orders(currentPage: 1, pageSize: $pageSize, '
+                . 'sort: { sort_field: CREATED_AT, sort_direction: DESC }) { items { %s } } } }',
+            ['pageSize' => $limit],
+            $token,
+        );
 
         return array_values($data['customer']['orders']['items'] ?? []);
     }
 
     public function findOwnOrder(string $token, string $orderNumber): ?array
     {
-        // Querying through `customer { orders }` means Magento only searches
-        // the token owner's orders: another clinic's order number finds nothing.
-        $query = 'query ($number: String!) { customer { orders(filter: { number: { eq: $number } }) { items { '
-            . self::ORDER_FIELDS . ' } } } }';
-        $data = $this->client->query($query, ['number' => $orderNumber], $token);
+        // Customers often type "726" for order 000000726: try the number as
+        // typed, then Magento's zero-padded form.
+        $candidates = [$orderNumber];
+        if (ctype_digit($orderNumber) && strlen($orderNumber) < self::ORDER_NUMBER_LENGTH) {
+            $candidates[] = str_pad($orderNumber, self::ORDER_NUMBER_LENGTH, '0', STR_PAD_LEFT);
+        }
 
-        foreach ($data['customer']['orders']['items'] ?? [] as $order) {
-            // Belt and braces: never trust a filter we did not write.
-            if (is_array($order) && (string) ($order['number'] ?? '') === $orderNumber) {
-                return $order;
+        foreach ($candidates as $candidate) {
+            // Querying through `customer { orders }` means Magento only searches
+            // the token owner's orders: another clinic's order number finds nothing.
+            $data = $this->queryOrders(
+                'query ($number: String!) { customer { orders(filter: { number: { eq: $number } }) { items { %s } } } }',
+                ['number' => $candidate],
+                $token,
+            );
+            foreach ($data['customer']['orders']['items'] ?? [] as $order) {
+                // Belt and braces: never trust a filter we did not write.
+                if (is_array($order) && (string) ($order['number'] ?? '') === $candidate) {
+                    return $order;
+                }
             }
         }
 
         return null;
+    }
+
+    /**
+     * Runs an order query with the full field set; if Magento rejects it
+     * outright (e.g. a field doesn't exist after a module change), retries
+     * with standard Magento fields only. Fields whose resolver errors come
+     * back empty instead of failing the whole lookup.
+     *
+     * @param string $template query with %s where the order fields go
+     * @param array<string, mixed> $variables
+     * @return array<string, mixed>
+     */
+    private function queryOrders(string $template, array $variables, string $token): array
+    {
+        try {
+            $data = $this->client->query(sprintf($template, self::ORDER_FIELDS), $variables, $token, true);
+        } catch (MagentoAuthException $e) {
+            throw $e;
+        } catch (MagentoException $e) {
+            $this->logger?->log('magento_order_fields_fallback', ['detail' => substr($e->getMessage(), 0, 500)]);
+            $data = $this->client->query(sprintf($template, self::CORE_ORDER_FIELDS), $variables, $token, true);
+        }
+
+        if ($this->client->lastPartialErrors !== []) {
+            // Field paths only (no order data), so the broken resolver can be fixed in Magento.
+            $this->logger?->log('magento_partial', ['fields' => array_values(array_unique(array_map(
+                static fn ($e) => implode('.', array_filter((array) ($e['path'] ?? []), 'is_string')),
+                $this->client->lastPartialErrors,
+            )))]);
+        }
+
+        return $data;
     }
 
     public function findOwnOrdersByPatient(string $token, string $patientName, int $limit): array
@@ -91,7 +151,7 @@ final class MagentoCustomerDataSource implements CustomerDataSource
         // customer ID, so it is scoped to the token.
         $query = 'query ($name: String!, $pageSize: Int!) { customerAllOrders(currentPage: 1, pageSize: $pageSize, '
             . 'filter: { patient_name: $name }) { items { number order_date order_status_title patient_name } } }';
-        $data = $this->client->query($query, ['name' => $patientName, 'pageSize' => $limit], $token);
+        $data = $this->client->query($query, ['name' => $patientName, 'pageSize' => $limit], $token, true);
 
         return array_values($data['customerAllOrders']['items'] ?? []);
     }
