@@ -302,6 +302,38 @@ final class ChatServiceTest extends TestCase
         self::assertSame('', $logged['order_number'], 'unverified order numbers are not forwarded to the team');
     }
 
+    public function testProductSearchWithNoMatchOffersTheCatalogInstead(): void
+    {
+        $claude = new ScriptedClaude([
+            ScriptedClaude::toolCall('search_products', ['query' => 'Aligners'], 'toolu_a'),
+            ScriptedClaude::toolCall('get_catalog_overview', ['category' => ''], 'toolu_b'),
+            ScriptedClaude::text('We offer crowns and bridges, for example the Zirconia Crown.'),
+        ]);
+        $this->service($claude)->handle('Aligners?', 'token-clinic-a', '10.0.0.1');
+
+        [$search, $overview] = self::toolResults($claude);
+        self::assertSame([], $search['products']);
+        self::assertSame('Crowns & Bridges', $search['categories'][0]['category']);
+        self::assertSame(['Zirconia Crown', 'E.max Crown'], $overview['categories'][0]['products']);
+    }
+
+    public function testHelpSearchMatchesOtherWordForms(): void
+    {
+        file_put_contents($this->dir . '/kb/portal.md', "# Portal\n\n## Placing an order\nAdd the item to your cart and check out.\n");
+        $kb = new KnowledgeBase($this->dir . '/kb');
+
+        self::assertSame('Placing an order', $kb->search('how to place order?')[0]['title']);
+        self::assertSame('Placing an order', $kb->search('placed orders')[0]['title']);
+    }
+
+    public function testShippedHelpArticlesAnswerCommonQuestions(): void
+    {
+        $kb = new KnowledgeBase(dirname(__DIR__) . '/knowledge');
+
+        self::assertSame('How to place an order', $kb->search('how to place order?')[0]['title']);
+        self::assertSame('Uploading scans and case files', $kb->search('upload scan')[0]['title']);
+    }
+
     public function testNoToolAcceptsAnIdentityChosenByTheModel(): void
     {
         foreach (SupportTools::definitions() as $tool) {

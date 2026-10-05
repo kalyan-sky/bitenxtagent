@@ -93,7 +93,16 @@ final class FakeMagento implements CustomerDataSource
 
     public function searchProducts(string $token, string $phrase, int $limit): array
     {
+        if (stripos($phrase, 'crown') === false) {
+            return [];
+        }
+
         return [['name' => 'Zirconia Crown', 'sku' => 'ZC-1', 'stock_status' => 'IN_STOCK',
             'price_range' => ['minimum_price' => ['final_price' => ['value' => 225, 'currency' => 'USD']]]]];
+    }
+
+    public function catalogOverview(string $token, int $productsPerCategory): array
+    {
+        return [['category' => 'Crowns & Bridges', 'product_count' => 2, 'products' => ['Zirconia Crown', 'E.max Crown']]];
     }
 }

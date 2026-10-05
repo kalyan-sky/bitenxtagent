@@ -28,4 +28,7 @@ interface CustomerDataSource
 
     /** @return list<array<string, mixed>> catalog products matching a search phrase */
     public function searchProducts(string $token, string $phrase, int $limit): array;
+
+    /** @return list<array{category: string, product_count: int, products: list<string>}> what the catalog offers */
+    public function catalogOverview(string $token, int $productsPerCategory): array;
 }

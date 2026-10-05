@@ -89,7 +89,8 @@ final class AnthropicProvider implements LlmProvider
             if ($block->type === 'text') {
                 $text[] = $block->text;
             } elseif ($block instanceof BetaToolUseBlock) {
-                $calls[] = new ToolCall($block->id, $block->name, (array) $block->input);
+                // Array access: the typed ->input accessor throws when the input is an empty object.
+                $calls[] = new ToolCall($block->id, $block->name, (array) ($block['input'] ?? []));
             }
         }
 

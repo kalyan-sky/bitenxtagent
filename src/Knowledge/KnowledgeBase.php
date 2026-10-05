@@ -64,8 +64,28 @@ final class KnowledgeBase
         preg_match_all('/[\p{L}\p{N}]+/u', mb_strtolower($text), $m);
 
         return array_values(array_filter(
-            array_map(static fn ($w) => rtrim($w, 's') ?: $w, $m[0]),
-            static fn ($w) => mb_strlen($w) > 1 && !in_array($w, $stop, true),
+            array_map([self::class, 'stem'], array_filter($m[0], static fn ($w) => !in_array($w, $stop, true))),
+            static fn ($w) => mb_strlen($w) > 1,
         ));
+    }
+
+    /** Crude English stemmer so "placing", "placed", "places" and "place" all match. */
+    private static function stem(string $word): string
+    {
+        foreach (['ing' => 6, 'ed' => 5, 'ies' => 5, 'es' => 5, 's' => 4] as $suffix => $minLength) {
+            if (mb_strlen($word) >= $minLength && str_ends_with($word, $suffix)) {
+                $word = mb_substr($word, 0, -mb_strlen($suffix)) . ($suffix === 'ies' ? 'y' : '');
+                break;
+            }
+        }
+        if (mb_strlen($word) > 3 && str_ends_with($word, 'e')) {
+            $word = mb_substr($word, 0, -1);
+        }
+        // "shipp" (from "shipping") -> "ship"
+        if (preg_match('/([b-df-hj-np-tv-z])\1$/u', $word)) {
+            $word = mb_substr($word, 0, -1);
+        }
+
+        return $word;
     }
 }

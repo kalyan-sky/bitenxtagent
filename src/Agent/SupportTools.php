@@ -43,7 +43,8 @@ final class SupportTools
             'required' => $required,
             'additionalProperties' => false,
         ];
-        $orderNumber = ['type' => 'string', 'description' => 'The order number exactly as the customer gave it, e.g. "000001234".'];
+        $orderNumber = ['type' => 'string', 'description' => 'The order number as the customer gave it, e.g. "000001234" or '
+            . 'just "1234" (short numbers are matched automatically, so never ask for leading zeros).'];
 
         return [
             [
@@ -78,10 +79,20 @@ final class SupportTools
             ],
             [
                 'name' => 'search_products',
-                'description' => 'Search the product and service catalog by name or keyword. Returns name, SKU, price and stock.',
+                'description' => 'Search the product and service catalog by name or keyword. Returns name, SKU, price and stock. '
+                    . 'If nothing matches, the result includes the catalog categories so you can suggest close alternatives.',
                 'inputSchema' => $object([
                     'query' => ['type' => 'string', 'description' => 'Search words, e.g. "zirconia crown".'],
                 ], ['query']),
+                'strict' => true,
+            ],
+            [
+                'name' => 'get_catalog_overview',
+                'description' => 'List the product and service categories in the catalog, with example products in each. '
+                    . 'Use when the customer asks what is available, what you offer, or browses without a specific product name.',
+                'inputSchema' => $object([
+                    'category' => ['type' => 'string', 'description' => 'A category to narrow the list, or an empty string for everything.'],
+                ], ['category']),
                 'strict' => true,
             ],
             [
@@ -127,6 +138,7 @@ final class SupportTools
                 'find_orders_by_patient' => $this->ordersByPatient($input),
                 'get_order_follow_ups' => $this->followUps($input),
                 'search_products' => $this->searchProducts($input),
+                'get_catalog_overview' => $this->catalogOverview((string) ($input['category'] ?? '')),
                 'search_help_articles' => $this->searchHelp($input),
                 'escalate_to_human' => $this->escalate($input),
                 default => ['error' => 'unknown_tool'],
@@ -138,7 +150,7 @@ final class SupportTools
             // The real error stays in our log; the model only learns that the
             // lookup failed, so it cannot repeat internals to the customer.
             $this->logger->log('magento_error', ['session' => $this->session->id, 'tool' => $name, 'detail' => $e->getMessage()]);
-            $result = ['error' => 'temporarily_unavailable', 'message' => 'Order information is unavailable right now. Offer to try again later or to escalate.'];
+            $result = ['error' => 'temporarily_unavailable', 'message' => 'That information is unavailable right now. Offer to try again later or to escalate.'];
         }
 
         $isError = isset($result['error']);
@@ -254,7 +266,41 @@ final class SupportTools
             return $view;
         }, $this->magento->searchProducts((string) $this->customerToken, $query, 5));
 
+        if ($products === []) {
+            try {
+                $overview = $this->catalogOverview();
+            } catch (MagentoException $e) {
+                // Auth errors still surface; a broken category list just leaves the suggestions out.
+                if ($e instanceof MagentoAuthException) {
+                    throw $e;
+                }
+                $this->logger->log('magento_error', ['session' => $this->session->id, 'tool' => 'catalog_overview', 'detail' => $e->getMessage()]);
+                $overview = [];
+            }
+
+            return [
+                'products' => [],
+                'message' => 'No product matched that wording. Suggest the closest categories or products below, if any, '
+                    . 'or ask the customer to describe what they need. Do not invent products.',
+            ] + $overview;
+        }
+
         return ['products' => $products];
+    }
+
+    private function catalogOverview(string $category = ''): array
+    {
+        $categories = $this->magento->catalogOverview((string) $this->customerToken, 8);
+        $category = mb_strtolower(trim($category));
+        if ($category !== '') {
+            $matching = array_values(array_filter(
+                $categories,
+                static fn (array $c) => str_contains(mb_strtolower($c['category']), $category),
+            ));
+            $categories = $matching !== [] ? $matching : $categories; // unknown name: show everything
+        }
+
+        return ['categories' => $categories];
     }
 
     /** @param array<string, mixed> $input */
