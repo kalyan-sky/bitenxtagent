@@ -66,6 +66,17 @@ final class FileSessionStore implements SessionStore
         return array_slice($found, 0, $limit);
     }
 
+    public function latest(string $ownerKey): ?ChatSession
+    {
+        $summary = $this->findByOwner($ownerKey, 1)[0] ?? null;
+        if ($summary === null) {
+            return null;
+        }
+        $session = $this->load($summary['id']);
+
+        return $session->id === $summary['id'] ? $session : null;
+    }
+
     private function path(string $id): string
     {
         return $this->directory . '/' . $id . '.json';

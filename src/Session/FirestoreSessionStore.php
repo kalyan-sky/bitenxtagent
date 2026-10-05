@@ -45,14 +45,54 @@ final class FirestoreSessionStore implements SessionStore
         $summary = $session->summary();
         // The full conversation is one JSON string; the summary fields sit next
         // to it so conversations can be listed without downloading them.
-        $this->firestore->set($this->collection, $session->id, [
-            'data' => ['stringValue' => json_encode($session->toArray(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE)],
-            'expireAt' => FirestoreClient::timestamp(time() + $this->ttlSeconds),
+        $data = ['stringValue' => json_encode($session->toArray(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE)];
+        $expireAt = FirestoreClient::timestamp(time() + $this->ttlSeconds);
+        $documents = [['collection' => $this->collection, 'id' => $session->id, 'fields' => [
+            'data' => $data,
+            'expireAt' => $expireAt,
             'ownerKey' => ['stringValue' => $summary['ownerKey']],
             'title' => ['stringValue' => $summary['title']],
             'updatedAt' => ['integerValue' => (string) $summary['updatedAt']],
             'messageCount' => ['integerValue' => (string) $summary['messageCount']],
-        ]);
+        ]]];
+        if ($summary['ownerKey'] !== '' && $summary['messageCount'] > 0) {
+            // A copy under a fixed per-customer ID, so the next message finds the
+            // current conversation with one read instead of a query plus a read.
+            // It has no ownerKey field, so conversation listings never include it.
+            $documents[] = ['collection' => $this->collection, 'id' => self::latestId($summary['ownerKey']), 'fields' => [
+                'data' => $data,
+                'expireAt' => $expireAt,
+            ]];
+        }
+        $this->firestore->setMany($documents); // one request for both
+    }
+
+    public function latest(string $ownerKey): ?ChatSession
+    {
+        $fields = $this->firestore->get($this->collection, self::latestId($ownerKey));
+        if ($fields !== null && (strtotime($fields['expireAt']['timestampValue'] ?? '') ?: 0) >= time()) {
+            $data = json_decode($fields['data']['stringValue'] ?? '', true);
+            if (is_array($data)) {
+                $session = ChatSession::fromArray($data);
+                if ($session->ownerKey() === $ownerKey) {
+                    return $session;
+                }
+            }
+        }
+
+        // Customers whose last message predates the pointer: look it up the old way.
+        $summary = $this->findByOwner($ownerKey, 1)[0] ?? null;
+        if ($summary === null) {
+            return null;
+        }
+        $session = $this->load($summary['id']);
+
+        return $session->id === $summary['id'] ? $session : null;
+    }
+
+    private static function latestId(string $ownerKey): string
+    {
+        return 'latest-' . substr(hash('sha256', $ownerKey), 0, 40);
     }
 
     public function findByOwner(string $ownerKey, int $limit): array

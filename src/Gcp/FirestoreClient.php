@@ -54,6 +54,21 @@ class FirestoreClient
     }
 
     /**
+     * Creates or replaces several documents in one request (one commit).
+     *
+     * @param list<array{collection: string, id: string, fields: array<string, mixed>}> $documents
+     */
+    public function setMany(array $documents): void
+    {
+        $writes = array_map(fn (array $d) => ['update' => [
+            'name' => $this->documentsPath . '/' . $d['collection'] . '/' . $d['id'],
+            'fields' => $d['fields'],
+        ]], $documents);
+        [$status, $body] = $this->request('POST', $this->documentsPath . ':commit', ['writes' => $writes]);
+        $this->assertOk($status, $body);
+    }
+
+    /**
      * Documents in a collection where $field equals $value, returning only
      * the $select fields. Keyed by document ID.
      *

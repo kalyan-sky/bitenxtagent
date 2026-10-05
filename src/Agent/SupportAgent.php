@@ -96,16 +96,30 @@ final class SupportAgent
         $messages[] = $provider->userMessage($userText);
         $definitions = SupportTools::definitions();
 
+        // One reservation per message (about two calls' worth, checked against
+        // every limit up front), settled to the real total at the end: two
+        // counter writes per message instead of two per AI call.
+        $reservation = $this->budget->reserve($customerKey, $provider->name(), 2 * $this->estimate($messages));
+        $used = 0;
+        try {
+            return $this->loop($provider, $session, $tools, $messages, $definitions, $used);
+        } finally {
+            $this->budget->settle($reservation, $used); // gives back what was not used
+        }
+    }
+
+    /**
+     * @param list<array<string, mixed>> $messages
+     * @param list<array<string, mixed>> $definitions
+     * @return array{reply: string, stop_reason: string}
+     * @throws LlmUnavailableException
+     */
+    private function loop(LlmProvider $provider, ChatSession $session, SupportTools $tools, array $messages, array $definitions, int &$used): array
+    {
         for ($round = 0; $round <= self::MAX_TOOL_ROUNDS; $round++) {
-            $reservation = $this->budget->reserve($customerKey, $provider->name(), $this->estimate($messages));
-            try {
-                $started = hrtime(true);
-                $response = Timing::measure('llm', fn () => $provider->complete($this->systemPrompt, $definitions, $messages, $this->maxOutputTokens));
-            } catch (LlmUnavailableException $e) {
-                $this->budget->release($reservation);
-                throw $e;
-            }
-            $this->budget->settle($reservation, $response->totalTokens());
+            $started = hrtime(true);
+            $response = Timing::measure('llm', fn () => $provider->complete($this->systemPrompt, $definitions, $messages, $this->maxOutputTokens));
+            $used += $response->totalTokens();
             $this->logger->log('llm_call', [
                 'session' => $session->id,
                 'provider' => $provider->name(),
