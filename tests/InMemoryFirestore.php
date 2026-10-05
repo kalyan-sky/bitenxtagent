@@ -27,6 +27,13 @@ final class InMemoryFirestore extends FirestoreClient
         $this->docs["$collection/$id"] = $fields;
     }
 
+    public function setMany(array $documents): void
+    {
+        foreach ($documents as $d) {
+            $this->set($d['collection'], $d['id'], $d['fields']);
+        }
+    }
+
     public function query(string $collection, string $field, array $value, array $select, int $limit): array
     {
         $found = [];

@@ -21,7 +21,7 @@ interface CustomerDataSource
     public function findOwnOrder(string $token, string $orderNumber): ?array;
 
     /** @return list<array<string, mixed>> the customer's own orders whose patient name matches */
-    public function findOwnOrdersByPatient(string $token, string $patientName, int $limit, string $customerId = ''): array;
+    public function findOwnOrdersByPatient(string $token, string $patientName, int $limit): array;
 
     /**
      * The customer's own patient list (the Pro "Patients" page). $customerId

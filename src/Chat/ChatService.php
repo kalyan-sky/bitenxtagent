@@ -250,13 +250,11 @@ final class ChatService
      */
     private function currentConversation(string $owner): ChatSession
     {
-        $latest = $this->sessions->findByOwner($owner, 1)[0] ?? null;
-        if ($latest !== null && $latest['updatedAt'] >= time() - $this->conversationIdleSeconds) {
-            $session = $this->sessions->load($latest['id']);
-            if ($session->id === $latest['id'] && $session->ownerKey() === $owner
-                && $session->userTurns < $this->maxTurnsPerConversation) {
-                return $session;
-            }
+        $latest = $this->sessions->latest($owner);
+        if ($latest !== null && $latest->ownerKey() === $owner
+            && $latest->updatedAt >= time() - $this->conversationIdleSeconds
+            && $latest->userTurns < $this->maxTurnsPerConversation) {
+            return $latest;
         }
 
         return ChatSession::start();

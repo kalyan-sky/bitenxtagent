@@ -512,6 +512,20 @@ final class ChatServiceTest extends TestCase
         self::assertStringNotContainsString('Other Clinic', (string) json_encode($result));
     }
 
+    public function testKnownPatientWithoutMatchableOrdersIsNotCalledMissing(): void
+    {
+        $this->magento->patientLists['11'] = [['id' => '5', 'name' => 'Kalyan']];
+        $claude = new ScriptedClaude([
+            ScriptedClaude::toolCall('find_orders_by_patient', ['patient_name' => 'kalyan'], 'toolu_a'),
+            ScriptedClaude::text('Kalyan is in your patient list, but I can\'t match their orders here yet.'),
+        ]);
+        $this->service($claude)->handle('orders for patient kalyan', 'token-clinic-a', '10.0.0.1');
+
+        $result = self::toolResults($claude)[0];
+        self::assertSame(0, $result['count']);
+        self::assertTrue($result['patient_in_patient_list']);
+    }
+
     public function testNoToolAcceptsAnIdentityChosenByTheModel(): void
     {
         foreach (SupportTools::definitions() as $tool) {

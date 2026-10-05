@@ -237,33 +237,4 @@ final class MagentoCustomerDataSourceTest extends TestCase
         self::assertStringContainsString('"orders_with_patient_name":0', $log);
         self::assertStringContainsString('customer.orders.items.patient_name', $log);
     }
-
-    public function testPatientSearchMatchesOrdersByPatientIdFromTheClinicsPatientList(): void
-    {
-        $orders = $this->source(function (array $request) {
-            $q = $request['query'];
-            if (str_contains($q, 'fetchPatients')) {
-                self::assertSame(11, $request['variables']['id'], 'only the verified customer ID is passed');
-
-                return ['data' => ['fetchPatients' => [['id' => 5, 'name' => 'Kalyan'], ['id' => 6, 'name' => 'Vinod']]]];
-            }
-            if (str_contains($q, 'patient_id')) {
-                return ['data' => ['customerAllOrders' => ['items' => [
-                    ['number' => '000000750', 'order_date' => '2026-10-01', 'order_status_title' => 'Processing', 'patient_id' => 5],
-                    ['number' => '000000751', 'order_date' => '2026-10-02', 'order_status_title' => 'Processing', 'patient_id' => 6],
-                ]]]];
-            }
-            if (str_contains($q, 'filter: { patient_name')) {
-                return ['data' => ['customerAllOrders' => ['items' => []]]];
-            }
-            // Name-based scans find nothing: patient_name is empty on these orders.
-            return str_contains($q, 'customer {')
-                ? ['data' => ['customer' => ['orders' => ['items' => [['number' => '000000750', 'patient_name' => null]]]]]]
-                : ['data' => ['customerAllOrders' => ['items' => [['number' => '000000750', 'patient_name' => null]]]]];
-        })->findOwnOrdersByPatient('tok', 'kalyan', 10, '11');
-
-        self::assertSame(['000000750'], array_column($orders, 'number'));
-        self::assertSame('Kalyan', $orders[0]['patient_name']);
-        self::assertStringContainsString('"strategy":"patient_id_customerAllOrders"', (string) file_get_contents($this->log));
-    }
 }

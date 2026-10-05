@@ -305,7 +305,7 @@ final class MagentoCustomerDataSource implements CustomerDataSource
         return $patients;
     }
 
-    public function findOwnOrdersByPatient(string $token, string $patientName, int $limit, string $customerId = ''): array
+    public function findOwnOrdersByPatient(string $token, string $patientName, int $limit): array
     {
         $needle = mb_strtolower(trim($patientName));
         $matches = static fn (array $rows) => array_values(array_filter(
@@ -338,58 +338,6 @@ final class MagentoCustomerDataSource implements CustomerDataSource
             $rows = $this->ordersOrEmpty($query, [], $source, $token);
             $found = $matches($rows);
             $this->logPatientSearch('scan_' . $source, $rows, count($found));
-            if ($found !== []) {
-                usort($found, static fn ($a, $b) => strcmp((string) ($b['order_date'] ?? ''), (string) ($a['order_date'] ?? '')));
-
-                return array_slice($found, 0, $limit);
-            }
-        }
-
-        // 3. Orders may only carry the patient's ID (the name lookup on orders
-        //    can fail): find the patient in the clinic's own patient list, then
-        //    match orders by patient ID.
-        $patients = array_values(array_filter(
-            $customerId !== '' ? $this->ownPatients($token, $customerId) : [],
-            static fn (array $p) => $p['id'] !== '' && str_contains(mb_strtolower($p['name']), $needle),
-        ));
-        $names = array_column($patients, 'name', 'id');
-        if ($names === []) {
-            $this->logger?->log('patient_search', ['strategy' => 'patient_list', 'matched' => 0]);
-
-            return [];
-        }
-        foreach ([
-            'customerAllOrders' => ['query { customerAllOrders(currentPage: 1, pageSize: 100) { items { %s } } }',
-                ['number', 'order_date', 'order_status_title', 'patient_id']],
-            'customer' => ['query { customer { orders(currentPage: 1, pageSize: 100, sort: { sort_field: CREATED_AT, sort_direction: DESC }) { items { %s } } } }',
-                ['number', 'order_date', 'status', 'patient_id']],
-        ] as $source => [$template, $fields]) {
-            try {
-                $data = $this->queryDroppingUnknownFields($template, $fields, [], $token);
-            } catch (MagentoAuthException $e) {
-                throw $e;
-            } catch (MagentoException $e) {
-                $this->logger?->log('magento_error', ['query' => $source . '.patient_id', 'detail' => substr($e->getMessage(), 0, 400)]);
-                continue;
-            }
-            $rows = array_values(array_filter(
-                $source === 'customer' ? ($data['customer']['orders']['items'] ?? []) : ($data[$source]['items'] ?? []),
-                'is_array',
-            ));
-            $found = [];
-            foreach ($rows as $row) {
-                $id = (string) ($row['patient_id'] ?? '');
-                if ($id !== '' && isset($names[$id])) {
-                    $found[] = $row + ['patient_name' => $names[$id]];
-                }
-            }
-            $this->logger?->log('patient_search', [
-                'strategy' => 'patient_id_' . $source,
-                'patients_matched' => count($names),
-                'orders' => count($rows),
-                'orders_with_patient_id' => count(array_filter($rows, static fn ($o) => (string) ($o['patient_id'] ?? '') !== '')),
-                'matched' => count($found),
-            ]);
             if ($found !== []) {
                 usort($found, static fn ($a, $b) => strcmp((string) ($b['order_date'] ?? ''), (string) ($a['order_date'] ?? '')));
 

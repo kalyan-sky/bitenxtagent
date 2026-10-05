@@ -18,4 +18,7 @@ interface SessionStore
      * @return list<array{id: string, title: string, updatedAt: int, messageCount: int, ownerKey: string}>
      */
     public function findByOwner(string $ownerKey, int $limit): array;
+
+    /** The customer's most recently saved conversation, or null if they have none. */
+    public function latest(string $ownerKey): ?ChatSession;
 }

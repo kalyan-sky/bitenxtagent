@@ -380,7 +380,21 @@ final class SupportTools
             $this->trust($view);
 
             return $view;
-        }, $this->magento->findOwnOrdersByPatient($this->customerToken, $name, 10, $this->session->customerId));
+        }, $this->magento->findOwnOrdersByPatient($this->customerToken, $name, 10));
+
+        if ($orders === []) {
+            $known = array_filter(
+                $this->magento->ownPatients($this->customerToken, $this->session->customerId),
+                static fn (array $p) => str_contains(mb_strtolower($p['name']), mb_strtolower($name)),
+            );
+            if ($known !== []) {
+                // The patient exists, but orders don't carry a patient name we can match.
+                return ['orders' => [], 'count' => 0, 'patient_in_patient_list' => true,
+                    'message' => 'This patient is in the clinic\'s patient list, but their orders cannot be matched by patient '
+                        . 'in chat right now. Say so plainly (do not say the patient does not exist), suggest opening My Order '
+                        . 'in the Pro portal, and offer an order number lookup or the support team.'];
+            }
+        }
 
         return ['orders' => $orders, 'count' => count($orders)];
     }
