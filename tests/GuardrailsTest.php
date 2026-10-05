@@ -66,6 +66,15 @@ final class GuardrailsTest extends TestCase
         self::assertEqualsCanonicalizing(['email', 'phone'], $result->redactions);
     }
 
+    public function testSupportPhoneIsShownInAnyFormat(): void
+    {
+        $guard = new OutputGuard('ref-canary', ['contact@bitenxt.com', '+91 96422 03377']);
+        foreach (['9642203377', '+91 9642203377', '+91-96422-03377', '096422 03377'] as $format) {
+            self::assertSame("Call us on {$format}.", $guard->filter("Call us on {$format}.", [])->text);
+        }
+        self::assertSame('Call [phone hidden].', $guard->filter('Call 9876543210.', [])->text);
+    }
+
     public function testRedactsCardNumbersButNotAllowListedTrackingNumbers(): void
     {
         $result = $this->guard->filter('Card 4111 1111 1111 1111, tracking 79876543210987.', ['79876543210987']);

@@ -201,4 +201,40 @@ final class MagentoCustomerDataSourceTest extends TestCase
         self::assertNull($cart['scan'], 'a failing detail is left out, not fatal');
         self::assertStringContainsString('magento_cart_detail_unavailable', (string) file_get_contents($this->log));
     }
+
+    public function testPatientSearchFallsBackToScanningOrdersForPartOfTheName(): void
+    {
+        $orders = $this->source(function (array $request) {
+            if (str_contains($request['query'], 'filter: { patient_name')) {
+                return ['data' => ['customerAllOrders' => ['items' => []]]]; // exact-match search finds nothing
+            }
+            if (str_contains($request['query'], 'customerAllOrders')) {
+                return ['data' => ['customerAllOrders' => ['items' => [
+                    ['number' => '000000700', 'order_date' => '2026-09-01', 'patient_name' => 'D Narendra Kumar'],
+                    ['number' => '000000720', 'order_date' => '2026-09-20', 'patient_name' => 'Narendra K'],
+                    ['number' => '000000710', 'order_date' => '2026-09-10', 'patient_name' => 'Someone Else'],
+                ]]]];
+            }
+
+            return ['data' => ['customer' => ['orders' => ['items' => []]]]];
+        }, $requests)->findOwnOrdersByPatient('tok', 'narendra', 10);
+
+        self::assertSame(['000000720', '000000700'], array_column($orders, 'number'), 'newest first, any case, part of the name');
+        $log = (string) file_get_contents($this->log);
+        self::assertStringContainsString('"strategy":"scan_customerAllOrders"', $log);
+        self::assertStringNotContainsString('Narendra', $log, 'no patient names in logs');
+    }
+
+    public function testPatientSearchLogsWhenMagentoReturnsNoPatientNames(): void
+    {
+        $orders = $this->source(fn (array $request) => str_contains($request['query'], 'customer {')
+            ? ['data' => ['customer' => ['orders' => ['items' => [['number' => '1', 'patient_name' => null]]]]],
+                'errors' => [['message' => 'Internal server error', 'path' => ['customer', 'orders', 'items', 0, 'patient_name']]]]
+            : ['data' => ['customerAllOrders' => ['items' => []]]])->findOwnOrdersByPatient('tok', 'kalyan', 10);
+
+        self::assertSame([], $orders);
+        $log = (string) file_get_contents($this->log);
+        self::assertStringContainsString('"orders_with_patient_name":0', $log);
+        self::assertStringContainsString('customer.orders.items.patient_name', $log);
+    }
 }
