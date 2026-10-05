@@ -43,9 +43,9 @@ fi
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA" \
   --role=roles/datastore.user --condition=None >/dev/null
 
-echo "==> AI API keys in Secret Manager (Gemini primary, Claude fallback)"
+echo "==> AI API keys in Secret Manager (Gemini primary, OpenRouter fallback)"
 SECRETS_ARG=""
-for pair in "LLM_GEMINI_API_KEY:gemini-api-key:Gemini (Google AI Studio)" "LLM_CLAUDE_API_KEY:anthropic-api-key:Anthropic"; do
+for pair in "LLM_GEMINI_API_KEY:gemini-api-key:Gemini (Google AI Studio)" "LLM_OPENROUTER_API_KEY:openrouter-api-key:OpenRouter"; do
   IFS=: read -r ENV_NAME SECRET_NAME LABEL <<<"$pair"
   if ! gcloud secrets describe "$SECRET_NAME" >/dev/null 2>&1; then
     read -r -s -p "Paste the $LABEL API key (input hidden, Enter to skip): " KEY; echo

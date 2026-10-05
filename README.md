@@ -3,8 +3,9 @@
 A customer-support chatbot for the BiteNXT Pro portal. Clinics can ask about their orders (status, items,
 tracking, follow-up notes), search products and services, get answers from your help articles, and be handed
 to a person when the bot can't help. It's a small standalone PHP service. It talks to Magento only through
-the customer's own GraphQL token. The AI is configurable: by default **Gemini answers first and Claude takes
-over automatically** if Gemini is down, rate-limited or refuses. Any OpenAI-compatible provider can be added
+the customer's own GraphQL token. The AI is configurable: by default **Gemini answers first and OpenRouter
+takes over automatically** if Gemini is down, rate-limited or refuses (OpenRouter can serve Claude, GPT and other
+models with one key; Anthropic can also be called directly). Any OpenAI-compatible provider can be added
 through environment variables. Token limits cap AI spend per reply, per customer and for the whole service.
 
 ```
@@ -12,7 +13,7 @@ through environment variables. Token limits cap AI spend per reply, per customer
                                                            │
                          rate limit → input guard → verify token with Magento → session
                                                            │
-          token budget check → Gemini ⇢ (fallback) Claude   (tool-use loop, 7 fixed tools)
+          token budget check → Gemini ⇢ (fallback) OpenRouter   (tool-use loop, 7 fixed tools)
                                                            │
                    tools call fixed GraphQL queries with the CUSTOMER's token → allow-listed fields only
                                                            │
@@ -212,10 +213,11 @@ See `.env.example`. Key settings:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `LLM_PROVIDERS` | `gemini,claude` | AI providers in order: primary, then fallbacks |
+| `LLM_PROVIDERS` | `gemini,openrouter` | AI providers in order: primary, then fallbacks |
 | `LLM_GEMINI_MODEL` | (required) | Gemini model ID from Google AI Studio |
-| `LLM_GEMINI_API_KEY` / `LLM_CLAUDE_API_KEY` | (secrets) | From Secret Manager. Several comma-separated keys are tried in turn on 401/403/429. |
-| `LLM_CLAUDE_MODEL` / `LLM_CLAUDE_EFFORT` | `claude-opus-5-5` / `low` | |
+| `LLM_OPENROUTER_MODEL` | (required) | OpenRouter model ID that supports tool calling, e.g. `anthropic/<claude model>` |
+| `LLM_GEMINI_API_KEY` / `LLM_OPENROUTER_API_KEY` | (secrets) | From Secret Manager. Several comma-separated keys are tried in turn on 401/403/429. |
+| `LLM_CLAUDE_MODEL` / `LLM_CLAUDE_EFFORT` | `claude-opus-5-5` / `low` | Only if you call Anthropic directly (`claude` in `LLM_PROVIDERS`) |
 | `LLM_<NAME>_DAILY_TOKEN_LIMIT` | 0 (none) | Per-provider cap; over it, the next provider answers |
 | `MAX_OUTPUT_TOKENS` | 1024 | Most tokens one AI reply can produce |
 | `TOKEN_LIMIT_CUSTOMER_PER_DAY` | 200000 | Per logged-in customer (input + output tokens) |

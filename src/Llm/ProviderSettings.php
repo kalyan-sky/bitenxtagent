@@ -7,7 +7,7 @@ namespace Bitenxt\SupportAgent\Llm;
 /**
  * One AI provider's settings, read from environment variables:
  *
- *   LLM_PROVIDERS=gemini,claude          order = primary, then fallbacks
+ *   LLM_PROVIDERS=gemini,openrouter      order = primary, then fallbacks
  *   LLM_<NAME>_TYPE=anthropic | openai-compatible
  *   LLM_<NAME>_MODEL=...
  *   LLM_<NAME>_API_KEY=key1,key2         from Secret Manager; extra keys are tried on 401/403/429
@@ -17,7 +17,7 @@ namespace Bitenxt\SupportAgent\Llm;
  *   LLM_<NAME>_DAILY_TOKEN_LIMIT=0       0 = no provider-specific limit
  *   LLM_<NAME>_TIMEOUT_SECONDS=60
  *
- * The names "gemini", "claude" and "openai" come with sensible defaults, so
+ * The names "gemini", "openrouter", "claude" and "openai" come with sensible defaults, so
  * usually only the model and API key need setting.
  */
 final class ProviderSettings
@@ -29,6 +29,8 @@ final class ProviderSettings
         'gemini' => ['type' => self::OPENAI_COMPATIBLE, 'base_url' => 'https://generativelanguage.googleapis.com/v1beta/openai/', 'key_env' => 'GEMINI_API_KEY'],
         'claude' => ['type' => self::ANTHROPIC, 'model' => 'claude-opus-5-5', 'key_env' => 'ANTHROPIC_API_KEY', 'model_env' => 'CLAUDE_MODEL', 'effort_env' => 'CLAUDE_EFFORT'],
         'anthropic' => ['type' => self::ANTHROPIC, 'model' => 'claude-opus-5-5', 'key_env' => 'ANTHROPIC_API_KEY'],
+        // OpenRouter: one key for many models (Claude, GPT, Llama, ...); pick one that supports tool calling.
+        'openrouter' => ['type' => self::OPENAI_COMPATIBLE, 'base_url' => 'https://openrouter.ai/api/v1/', 'key_env' => 'OPENROUTER_API_KEY'],
         'openai' => ['type' => self::OPENAI_COMPATIBLE, 'base_url' => 'https://api.openai.com/v1/', 'key_env' => 'OPENAI_API_KEY', 'max_tokens_param' => 'max_completion_tokens'],
     ];
 
