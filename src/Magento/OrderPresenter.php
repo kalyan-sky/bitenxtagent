@@ -94,7 +94,7 @@ final class OrderPresenter
 
         $view = array_filter([
             'name' => self::str($coupon['name'] ?? null),
-            'code' => self::str($coupon['code'] ?? null),
+            'code' => self::str($coupon['code'] ?? $coupon['coupon_code'] ?? null),
             'details' => self::truncate(self::str($coupon['description'] ?? null), 200),
             'discount' => $discount,
             'valid_from' => self::str($coupon['from_date'] ?? null),

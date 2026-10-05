@@ -467,6 +467,22 @@ final class ChatServiceTest extends TestCase
         self::assertStringContainsString('"rating":"down"', $log);
     }
 
+    public function testUnexpectedToolErrorsDoNotCrashTheChat(): void
+    {
+        $this->magento->patientSearchError = new \TypeError('bad row');
+        $claude = new ScriptedClaude([
+            ScriptedClaude::toolCall('find_orders_by_patient', ['patient_name' => 'Kalyan'], 'toolu_a'),
+            ScriptedClaude::text("Sorry, I can't load those orders right now."),
+        ]);
+        $reply = $this->service($claude)->handle('orders for patient Kalyan?', 'token-clinic-a', '10.0.0.1');
+
+        self::assertSame(200, $reply['status']);
+        self::assertSame('temporarily_unavailable', self::toolResults($claude)[0]['error']);
+        $log = (string) file_get_contents($this->dir . '/log.jsonl');
+        self::assertStringContainsString('"tool_exception"', $log);
+        self::assertStringContainsString('TypeError', $log);
+    }
+
     public function testNoToolAcceptsAnIdentityChosenByTheModel(): void
     {
         foreach (SupportTools::definitions() as $tool) {
