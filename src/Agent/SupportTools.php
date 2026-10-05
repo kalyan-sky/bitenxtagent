@@ -10,6 +10,7 @@ use Bitenxt\SupportAgent\Magento\MagentoAuthException;
 use Bitenxt\SupportAgent\Magento\MagentoException;
 use Bitenxt\SupportAgent\Magento\OrderPresenter;
 use Bitenxt\SupportAgent\Session\ChatSession;
+use Bitenxt\SupportAgent\Support\Cache;
 use Bitenxt\SupportAgent\Support\HandoffNotifier;
 use Bitenxt\SupportAgent\Support\Logger;
 
@@ -61,6 +62,33 @@ final class SupportTools
                 'description' => "Get status, items, total, shipping method and tracking for one of the signed-in customer's own orders. "
                     . 'Returns not_found if the number is not on this account.',
                 'inputSchema' => $object(['order_number' => $orderNumber], ['order_number']),
+                'strict' => true,
+            ],
+            [
+                'name' => 'get_order_stats',
+                'description' => "Count the signed-in customer's orders: the total, and how many are in each status. "
+                    . 'Use for "how many orders do I have", "how many are processing/shipped".',
+                'inputSchema' => $object([
+                    'status' => ['type' => 'string', 'description' => 'A status to count, e.g. "processing", or an empty string for all.'],
+                ], ['status']),
+                'strict' => true,
+            ],
+            [
+                'name' => 'get_available_coupons',
+                'description' => 'List the coupons the signed-in customer can use now (name, code, discount, validity). '
+                    . 'Use for any question about coupons, discounts, offers or promo codes.',
+                'inputSchema' => $object([
+                    'code' => ['type' => 'string', 'description' => 'A coupon code to check, or an empty string for all.'],
+                ], ['code']),
+                'strict' => true,
+            ],
+            [
+                'name' => 'get_cart_summary',
+                'description' => "Show the signed-in customer's current cart: items, total, applied coupon, patient and doctor "
+                    . 'on the case, and scan upload status. Use for "what is in my cart", "is my scan uploaded", checkout questions.',
+                'inputSchema' => $object([
+                    'include_items' => ['type' => 'boolean', 'description' => 'Whether to list the items.'],
+                ], ['include_items']),
                 'strict' => true,
             ],
             [
@@ -135,6 +163,9 @@ final class SupportTools
             $result = match ($name) {
                 'get_recent_orders' => $this->recentOrders($input),
                 'get_order_status' => $this->orderStatus($input),
+                'get_order_stats' => $this->orderStats($input),
+                'get_available_coupons' => $this->coupons($input),
+                'get_cart_summary' => $this->cart($input),
                 'find_orders_by_patient' => $this->ordersByPatient($input),
                 'get_order_follow_ups' => $this->followUps($input),
                 'search_products' => $this->searchProducts($input),
@@ -192,6 +223,76 @@ final class SupportTools
         $this->trust($view);
 
         return ['order' => $view];
+    }
+
+    /** @param array<string, mixed> $input */
+    private function orderStats(array $input): array
+    {
+        if ($error = $this->requireSignIn()) {
+            return $error;
+        }
+        $stats = $this->magento->orderStats($this->customerToken);
+        $byStatus = [];
+        foreach ($stats['by_status'] as $status => $count) {
+            $byStatus[ucfirst(str_replace('_', ' ', (string) $status))] = $count;
+        }
+        $wanted = mb_strtolower(trim((string) ($input['status'] ?? '')));
+        if ($wanted !== '') {
+            $byStatus = array_filter($byStatus, static fn ($k) => str_contains(mb_strtolower((string) $k), $wanted), ARRAY_FILTER_USE_KEY);
+        }
+
+        return array_filter([
+            'total_orders' => $stats['total'],
+            'by_status' => $byStatus,
+            'note' => $stats['total'] > $stats['counted']
+                ? "Status counts cover the latest {$stats['counted']} orders." : null,
+        ], static fn ($v) => $v !== null);
+    }
+
+    /** @param array<string, mixed> $input */
+    private function coupons(array $input): array
+    {
+        if ($error = $this->requireSignIn()) {
+            return $error;
+        }
+        $coupons = array_values(array_filter(array_map(
+            static fn (array $c) => OrderPresenter::coupon($c),
+            $this->magento->availableCoupons($this->customerToken),
+        )));
+        $code = mb_strtolower(trim((string) ($input['code'] ?? '')));
+        if ($code !== '') {
+            $coupons = array_values(array_filter($coupons, static fn ($c) => mb_strtolower($c['code'] ?? '') === $code));
+        }
+        foreach ($coupons as $coupon) {
+            if (isset($coupon['code'])) {
+                $this->session->addSafeValue($coupon['code']);
+            }
+        }
+
+        return $coupons === []
+            ? ['coupons' => [], 'message' => $code !== '' ? 'That code is not an active coupon for this account.' : 'No active coupons right now.']
+            : ['coupons' => $coupons, 'how_to_use' => 'Enter the code in the cart before checkout.'];
+    }
+
+    /** @param array<string, mixed> $input */
+    private function cart(array $input): array
+    {
+        if ($error = $this->requireSignIn()) {
+            return $error;
+        }
+        $cart = $this->magento->cartSummary($this->customerToken);
+        if ($cart === null) {
+            return ['cart' => null, 'message' => 'The cart is empty.'];
+        }
+        $view = OrderPresenter::cart($cart);
+        if (($input['include_items'] ?? true) === false) {
+            unset($view['items']);
+        }
+        foreach ($view['coupons_applied'] ?? [] as $code) {
+            $this->session->addSafeValue($code);
+        }
+
+        return ['cart' => $view];
     }
 
     /** @param array<string, mixed> $input */
@@ -290,7 +391,12 @@ final class SupportTools
 
     private function catalogOverview(string $category = ''): array
     {
-        $categories = $this->magento->catalogOverview((string) $this->customerToken, 8);
+        // Same for every customer (names only), so cache it for an hour.
+        $categories = Cache::get('catalog_overview');
+        if (!is_array($categories)) {
+            $categories = $this->magento->catalogOverview((string) $this->customerToken, 8);
+            Cache::set('catalog_overview', $categories, 3600);
+        }
         $category = mb_strtolower(trim($category));
         if ($category !== '') {
             $matching = array_values(array_filter(
@@ -306,7 +412,17 @@ final class SupportTools
     /** @param array<string, mixed> $input */
     private function searchHelp(array $input): array
     {
-        $articles = $this->knowledge->search((string) ($input['query'] ?? ''));
+        $query = (string) ($input['query'] ?? '');
+        $articles = $this->knowledge->search($query);
+        if ($articles === []) {
+            // The weekly "what should we write next" list. Digits and emails are
+            // masked so no order numbers or contact details end up in the log.
+            $this->logger->log('knowledge_gap', ['session' => $this->session->id, 'query' => mb_substr((string) preg_replace(
+                ['/\S+@\S+/', '/\d/'],
+                ['[email]', '#'],
+                $query,
+            ), 0, 120)]);
+        }
 
         return $articles === []
             ? ['articles' => [], 'message' => 'No help article matches. Do not guess a policy; offer to escalate.']

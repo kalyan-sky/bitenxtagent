@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Bitenxt\SupportAgent\Llm;
 
+use Bitenxt\SupportAgent\Support\Http;
+
 /**
  * Any provider that speaks the OpenAI Chat Completions API: Gemini (through
  * Google's OpenAI-compatible endpoint), OpenAI, Azure OpenAI, Mistral, Groq,
@@ -201,7 +203,7 @@ final class OpenAiCompatibleProvider implements LlmProvider
      */
     private static function curlTransport(string $url, array $headers, string $body, int $timeout): array
     {
-        $ch = curl_init($url);
+        $ch = Http::handle($url);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $body,
@@ -213,7 +215,6 @@ final class OpenAiCompatibleProvider implements LlmProvider
         $raw = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
-        curl_close($ch);
         if ($raw === false) {
             throw new \RuntimeException($error);
         }

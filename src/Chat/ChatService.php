@@ -16,7 +16,9 @@ use Bitenxt\SupportAgent\Magento\MagentoException;
 use Bitenxt\SupportAgent\Session\ChatSession;
 use Bitenxt\SupportAgent\Session\SessionStore;
 use Bitenxt\SupportAgent\Support\HandoffNotifier;
+use Bitenxt\SupportAgent\Support\Cache;
 use Bitenxt\SupportAgent\Support\Logger;
+use Bitenxt\SupportAgent\Support\Timing;
 
 /**
  * Chat for logged-in Pro customers, Amazon-style: each customer has one
@@ -35,6 +37,8 @@ final class ChatService
     public const LOGIN_REQUIRED_REPLY = 'Please log in to your BiteNXT Pro account to use support chat.';
     public const UNAVAILABLE_REPLY = "We can't verify your account right now. Please try again in a few minutes.";
     public const HISTORY_LIMIT = 200;
+    /** How long a verified login is trusted before Magento is asked again. */
+    public const IDENTITY_CACHE_SECONDS = 300;
 
     public function __construct(
         private readonly SessionStore $sessions,
@@ -60,6 +64,8 @@ final class ChatService
      */
     public function handle(string $message, ?string $customerToken, string $clientIp): array
     {
+        Timing::reset();
+        $started = hrtime(true);
         $customer = $this->authenticate($customerToken, $clientIp);
         if (isset($customer['status'])) {
             return $customer;
@@ -127,7 +133,38 @@ final class ChatService
             'turn' => $session->userTurns,
         ]);
 
-        return $this->finish($session, $input->text, $output->text);
+        $response = $this->finish($session, $input->text, $output->text);
+        $this->logger->log('timing', ['session' => $session->id, 'path' => $result['stop_reason'] === 'fast_path' ? 'fast_path' : 'ai',
+            'total_ms' => (int) ((hrtime(true) - $started) / 1e6)] + Timing::summary());
+
+        return $response;
+    }
+
+    /**
+     * 👍/👎 on an answer. Logged (no message text) so unhelpful answers can be
+     * found in the conversation by session and time.
+     *
+     * @return array{status: int, ok?: bool, reply?: string, error?: string}
+     */
+    public function feedback(?string $customerToken, string $clientIp, string $rating, int $at): array
+    {
+        $customer = $this->authenticate($customerToken, $clientIp);
+        if (isset($customer['status'])) {
+            return $customer;
+        }
+        if (!in_array($rating, ['up', 'down'], true)) {
+            return ['status' => 400, 'error' => 'invalid_rating'];
+        }
+        $owner = self::ownerKey($customer);
+        $latest = $this->sessions->findByOwner($owner, 1)[0] ?? null;
+        $this->logger->log('feedback', [
+            'rating' => $rating,
+            'session' => $latest['id'] ?? '',
+            'message_at' => $at,
+            'customer' => Logger::pseudonym($owner),
+        ]);
+
+        return ['status' => 200, 'ok' => true];
     }
 
     /**
@@ -176,8 +213,18 @@ final class ChatService
         if ($customerToken === null || $customerToken === '') {
             return self::loginRequired();
         }
+        // Verified logins are remembered for a few minutes (keyed by a hash of
+        // the token, never the token itself) to save a Magento call per message.
+        $cacheKey = 'customer:' . hash('sha256', $customerToken);
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && isset($cached['customer_id'])) {
+            return $cached;
+        }
         try {
-            return $this->magento->currentCustomer($customerToken);
+            $customer = $this->magento->currentCustomer($customerToken);
+            Cache::set($cacheKey, $customer, self::IDENTITY_CACHE_SECONDS);
+
+            return $customer;
         } catch (MagentoAuthException) {
             $this->logger->log('token_rejected', ['ip' => Logger::pseudonym($clientIp)]);
 

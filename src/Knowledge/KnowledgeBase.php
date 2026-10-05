@@ -30,6 +30,23 @@ final class KnowledgeBase
         }
     }
 
+    /** Words customers use for the same thing; a query word also matches the others in its group. */
+    private const SYNONYMS = [
+        ['coupon', 'discount', 'promo', 'voucher', 'offer', 'promotion'],
+        ['scan', 'stl', 'ply', 'intraoral', 'impression', 'file'],
+        ['upload', 'attach', 'send', 'submit'],
+        ['doctor', 'dentist', 'dr', 'clinician'],
+        ['patient', 'case'],
+        ['reorder', 'repeat', 'again', 'duplicate'],
+        ['account', 'profile', 'login', 'signin', 'password', 'register', 'signup'],
+        ['cart', 'basket', 'checkout'],
+        ['track', 'tracking', 'status', 'where', 'shipped', 'delivery'],
+        ['note', 'comment', 'instruction', 'message', 'follow'],
+        ['appointment', 'meeting', 'call', 'consultation', 'demo'],
+        ['product', 'service', 'catalog', 'item'],
+        ['cancel', 'change', 'modify', 'edit'],
+    ];
+
     /** @return list<array{title: string, body: string}> */
     public function search(string $query, int $limit = 3): array
     {
@@ -37,18 +54,30 @@ final class KnowledgeBase
         if ($terms === []) {
             return [];
         }
+        // Synonyms help, but count for less than the customer's own words.
+        $weights = array_fill_keys(self::expand($terms), 0.5);
+        foreach ($terms as $term) {
+            $weights[$term] = 1.0;
+        }
 
         $scored = [];
         foreach ($this->sections as $section) {
-            $titleTerms = self::terms($section['title']);
-            $bodyTerms = self::terms($section['body']);
-            $score = 0;
-            foreach ($terms as $term) {
-                $score += 3 * count(array_keys($titleTerms, $term, true));
-                $score += count(array_keys($bodyTerms, $term, true));
+            $titleTerms = array_count_values(self::terms($section['title']));
+            $bodyTerms = array_count_values(self::terms($section['body']));
+            $score = 0.0;
+            $matched = 0;
+            foreach ($weights as $term => $weight) {
+                $inTitle = isset($titleTerms[$term]);
+                $inBody = min($bodyTerms[$term] ?? 0, 3);
+                if ($inTitle || $inBody > 0) {
+                    // A match in the heading counts most; repeating a word in a long body counts little.
+                    $score += $weight * (($inTitle ? 4 : 0) + $inBody);
+                    $matched += $weight === 1.0 ? 1 : 0;
+                }
             }
             if ($score > 0) {
-                $scored[] = [$score, ['title' => $section['title'], 'body' => $section['body']]];
+                // Sections that cover more of the question's own words come first.
+                $scored[] = [$score + 3 * $matched, ['title' => $section['title'], 'body' => $section['body']]];
             }
         }
         usort($scored, static fn ($a, $b) => $b[0] <=> $a[0]);
@@ -56,11 +85,31 @@ final class KnowledgeBase
         return array_map(static fn ($s) => $s[1], array_slice($scored, 0, $limit));
     }
 
+    /**
+     * @param list<string> $terms
+     * @return list<string>
+     */
+    private static function expand(array $terms): array
+    {
+        static $groups = null;
+        $groups ??= array_map(static fn (array $g) => array_map([self::class, 'stem'], $g), self::SYNONYMS);
+        $expanded = $terms;
+        foreach ($groups as $group) {
+            if (array_intersect($terms, $group) !== []) {
+                $expanded = array_merge($expanded, $group);
+            }
+        }
+
+        return array_values(array_unique($expanded));
+    }
+
     /** @return list<string> */
     private static function terms(string $text): array
     {
         static $stop = ['the', 'a', 'an', 'and', 'or', 'of', 'to', 'is', 'are', 'my', 'i', 'you', 'your',
-            'how', 'what', 'when', 'do', 'does', 'can', 'for', 'in', 'on', 'it', 'with', 'be', 'me', 'we'];
+            'how', 'what', 'when', 'do', 'does', 'can', 'for', 'in', 'on', 'it', 'with', 'be', 'me', 'we',
+            'have', 'has', 'any', 'there', 'this', 'that', 'which', 'about', 'get', 'need', 'want', 'please', 'tell',
+            'should', 'could', 'would', 'will', 'am', 'was', 'from', 'at', 'by', 'if', 'so', 'our', 'us', 'all'];
         preg_match_all('/[\p{L}\p{N}]+/u', mb_strtolower($text), $m);
 
         return array_values(array_filter(

@@ -66,7 +66,7 @@ final class App
 
         $agent = new SupportAgent(
             self::providers($config, $logger),
-            SystemPrompt::build($config->storeName, $config->supportEmail, $config->supportPhone, $canary),
+            SystemPrompt::build($config->storeName, $config->supportEmail, $config->supportPhone, $canary, $config->proPortalUrl),
             $budget,
             $logger,
             $config->maxOutputTokens,

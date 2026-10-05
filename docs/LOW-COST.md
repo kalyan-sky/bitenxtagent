@@ -80,8 +80,23 @@ If you keep `openrouter` in `LLM_PROVIDERS`, set a **credit limit of about $2** 
 
 ## Checking it works
 
+Run the end-to-end check in Cloud Shell (it asks for the test user's password and never stores it):
+
+```bash
+git clone https://github.com/kalyan-sky/bitenxtagent.git && cd bitenxtagent
+bash deploy/uat-check.sh https://<your-service-url> <test-customer-email>
+```
+
+It checks the Magento queries the bot uses, asks the chat every question in `eval/questions.txt`, and prints
+each answer with its time.
+
 Cloud Run → **Logs**, filter by text:
 
-- `fast_path`: order questions answered without the AI.
-- `llm_call`: each AI call, with `input_tokens` and `output_tokens`.
+- `timing`: one line per message with `total_ms` and the time spent in `magento_ms`, `firestore_ms` and
+  `llm_ms` (`path` is `fast_path` or `ai`). This shows where any slowness comes from.
+- `llm_call`: each AI call, with `input_tokens`, `output_tokens` and `ms`.
+- `knowledge_gap`: how-to questions no help article answered. Write those articles next.
+- `feedback`: 👍/👎 from customers, with the session and time of the answer.
+- `magento_unknown_fields` / `magento_cart_detail_unavailable`: a Magento field the bot asked for does not exist on
+  this environment. The bot keeps working without it.
 - `token_budget_exceeded`: a limit was reached (chat pauses politely until the next hour or day).
