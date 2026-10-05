@@ -17,7 +17,7 @@ another region, set them as substitution variables on the trigger (step 8).
 | Cloud Run service | `bitenxt-support-agent` |
 | Runtime service account | `bitenxt-support-agent` |
 | Secret with the Gemini API key (primary AI) | `gemini-api-key` |
-| Secret with the Anthropic API key (fallback AI) | `anthropic-api-key` |
+| Secret with the OpenRouter API key (fallback AI) | `openrouter-api-key` |
 
 ## One-time setup
 
@@ -45,14 +45,21 @@ Then, in that database:
 
 ### 4. AI API keys in Secret Manager
 
-The chatbot uses **Gemini first** and **Claude as automatic fallback**. Get the keys:
+The chatbot uses **Gemini first** and **OpenRouter as automatic fallback**. OpenRouter gives one key for many
+models (Claude, GPT, …). Get the keys:
 - **Gemini:** [Google AI Studio](https://aistudio.google.com) → **Get API key**. Create it in a Google Cloud
   project with billing, so you can set quotas (see "Spend protection" below).
-- **Claude:** [Anthropic Console](https://console.anthropic.com) → **API Keys**.
+- **OpenRouter:** [openrouter.ai](https://openrouter.ai) → **Keys** → **Create key**. Set a **credit limit** on
+  the key, and add credits under **Credits**.
 
 **Security → Secret Manager → Create secret**, once per key:
 - Name: `gemini-api-key` · Secret value: the Gemini key → **Create secret**.
-- Name: `anthropic-api-key` · Secret value: the Anthropic key (`sk-ant-…`) → **Create secret**.
+- Name: `openrouter-api-key` · Secret value: the OpenRouter key (`sk-or-v1-…`) → **Create secret**.
+
+Every secret the pipeline attaches (`_SECRETS` in `cloudbuild.yaml`) must exist and **have a version**, or the
+deploy step fails. To call Anthropic directly instead of through OpenRouter, create `anthropic-api-key`, use
+`claude` in `LLM_PROVIDERS`, and set the trigger's `_SECRETS` to
+`LLM_GEMINI_API_KEY=gemini-api-key:latest,LLM_CLAUDE_API_KEY=anthropic-api-key:latest`.
 
 To rotate a key, add a **new version** to the secret. The service picks up `latest` on its next deploy or
 restart. To give a provider several keys (the next one is tried when one is rate-limited or rejected), put
@@ -64,7 +71,7 @@ them in one secret version separated by commas.
 - Name: `bitenxt-support-agent` → **Create and continue**.
 - Role: **Cloud Datastore User** (lets it read and write Firestore) → **Done**.
 
-Let it read the API keys. For **each** secret (`gemini-api-key` and `anthropic-api-key`):
+Let it read the API keys. For **each** secret (`gemini-api-key` and `openrouter-api-key`):
 **Secret Manager → secret → Permissions → Grant access**
 - Principal: `bitenxt-support-agent@<PROJECT_ID>.iam.gserviceaccount.com` · Role: **Secret Manager Secret
   Accessor** → **Save**.
@@ -120,23 +127,22 @@ variables**. Add:
 | `SUPPORT_EMAIL` | your support email | yes |
 | `SUPPORT_PHONE` | support phone, or leave out | no |
 | `STORE_NAME` | `BiteNXT` | no (default) |
-| `LLM_PROVIDERS` | `gemini,claude` (order = primary, then fallback) | yes |
+| `LLM_PROVIDERS` | `gemini,openrouter` (order = primary, then fallback) | yes |
 | `LLM_GEMINI_MODEL` | the Gemini model ID from Google AI Studio (e.g. a current Gemini Flash model) | yes |
-| `LLM_CLAUDE_MODEL` | `claude-opus-5-5` | no (default) |
+| `LLM_OPENROUTER_MODEL` | a model ID from openrouter.ai/models that supports **tool calling**, e.g. `anthropic/<claude model>` | yes |
 | `HANDOFF_WEBHOOK_URL` | Slack/Teams incoming webhook for "talk to a person" | no |
-| `LLM_CLAUDE_EFFORT` | `low` | no (default) |
 | `HISTORY_RETENTION_DAYS` | `90` | no (default) |
 | `CONVERSATION_IDLE_MINUTES` | `30` | no (default) |
 | `MAX_OUTPUT_TOKENS` | `1024` (most tokens one AI reply can produce) | no (default) |
 | `TOKEN_LIMIT_CUSTOMER_PER_DAY` | `200000` | no (default) |
 | `TOKEN_LIMIT_GLOBAL_PER_HOUR` | `1000000` | no (default) |
 | `TOKEN_LIMIT_GLOBAL_PER_DAY` | `5000000` | no (default) |
-| `LLM_GEMINI_DAILY_TOKEN_LIMIT` | e.g. `3000000`; over it, Claude answers instead (`0` = no limit) | no |
+| `LLM_GEMINI_DAILY_TOKEN_LIMIT` | e.g. `3000000`; over it, OpenRouter answers instead (`0` = no limit) | no |
 
-The key secrets are already attached by the pipeline as `LLM_GEMINI_API_KEY` and `LLM_CLAUDE_API_KEY`. You'll
+The key secrets are already attached by the pipeline as `LLM_GEMINI_API_KEY` and `LLM_OPENROUTER_API_KEY`. You'll
 see them under **Secrets exposed as environment variables**. → **Deploy**.
 
-To switch which AI answers first, change the order in `LLM_PROVIDERS` here (for example `claude,gemini`). No
+To switch which AI answers first, change the order in `LLM_PROVIDERS` here (for example `openrouter,gemini`). No
 code change or rebuild is needed.
 
 These settings stay in place on every later deploy from Cloud Build. To change one, repeat this step.
@@ -176,8 +182,8 @@ can't overshoot. If the counters (Firestore) can't be reached, no AI calls are m
 - **Gemini:** in the Google Cloud project that owns the Gemini key, **Billing → Budgets & alerts → Create
   budget** (alert emails). Under **APIs & Services → Generative Language API → Quotas**, lower the requests
   per minute and tokens per minute to a level you're comfortable with.
-- **Claude:** **Anthropic Console → Settings → Limits**: set a monthly spend limit for the workspace the key
-  belongs to.
+- **OpenRouter:** **openrouter.ai → Keys → (your key) → Edit**: set a **credit limit** on the key. Keep
+  auto top-up off, or capped, under **Credits**.
 
 **See usage:** every AI call is logged as `jsonPayload.event="llm_call"`, with provider, model and
 input/output tokens, and no chat text.
@@ -197,8 +203,8 @@ input/output tokens, and no chat text.
 |---|---|
 | Build fails at **deploy** with `iam.serviceaccounts.actAs` | Step 6: give `cloud-build-deployer` **Service Account User** on `bitenxt-support-agent`. |
 | Build fails at **push** with permission denied | Step 6: **Artifact Registry Writer**, and the repository region must match `_REGION`. |
-| Service fails to start: secret not found or permission denied | Step 4/5: the secrets must be named `gemini-api-key` and `anthropic-api-key` (or set `_SECRETS` on the trigger), and the runtime service account needs **Secret Manager Secret Accessor** on each. |
-| Every reply comes from Claude, never Gemini | Logs: look for `llm_config_error` (e.g. `LLM_GEMINI_MODEL` not set) or `llm_fallback` with the Gemini error (wrong model ID, key, or quota). |
+| Service fails to start: secret not found or permission denied | Step 4/5: the secrets must be named `gemini-api-key` and `openrouter-api-key` (or set `_SECRETS` on the trigger), each must have a version, and the runtime service account needs **Secret Manager Secret Accessor** on each. |
+| Every reply comes from OpenRouter, never Gemini | Logs: look for `llm_config_error` (e.g. `LLM_GEMINI_MODEL` not set) or `llm_fallback` with the Gemini error (wrong model ID, key, or quota). |
 | "Chat is temporarily unavailable" for everyone | A service-wide token limit was reached (`token_budget_exceeded`, scope `global`), or Firestore is unreachable (`token_budget_unavailable`). Raise the limit if the traffic is genuine. |
 | `/health` works but every chat says "Please log in" | The widget isn't sending the token (see INTEGRATION.md), or the token is from a different Magento than `MAGENTO_GRAPHQL_URL`. |
 | Chat says "We can't verify your account right now" | Cloud Run can't reach Magento. Check `MAGENTO_GRAPHQL_URL`, and whether the VM's firewall blocks Google Cloud IPs. If it allows only listed IPs, you need a fixed outgoing IP (Cloud NAT). |

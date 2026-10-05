@@ -36,6 +36,22 @@ final class ProviderSettingsTest extends TestCase
         self::assertNull($claude->problem());
     }
 
+    public function testGeminiPrimaryOpenRouterFallback(): void
+    {
+        [$gemini, $openrouter] = ProviderSettings::fromEnvironment(self::env([
+            'LLM_PROVIDERS' => 'gemini,openrouter',
+            'LLM_GEMINI_MODEL' => 'gemini-test-model',
+            'LLM_GEMINI_API_KEY' => 'g',
+            'LLM_OPENROUTER_MODEL' => 'anthropic/some-claude-model',
+            'LLM_OPENROUTER_API_KEY' => 'sk-or-v1-x',
+        ]));
+        self::assertSame(ProviderSettings::OPENAI_COMPATIBLE, $openrouter->type);
+        self::assertSame('https://openrouter.ai/api/v1/', $openrouter->baseUrl);
+        self::assertSame('max_tokens', $openrouter->maxTokensParam);
+        self::assertNull($gemini->problem());
+        self::assertNull($openrouter->problem());
+    }
+
     public function testOldAnthropicOnlySetupStillWorks(): void
     {
         $providers = ProviderSettings::fromEnvironment(self::env(['ANTHROPIC_API_KEY' => 'sk-ant-x', 'CLAUDE_EFFORT' => 'medium']));

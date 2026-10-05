@@ -14,7 +14,8 @@ substitutions:
   _RUNTIME_SA: bitenxt-support-agent   # service account the service runs as (name only)
   # AI API keys from Secret Manager, as ENV_VAR=secret-name:version pairs (comma-separated).
   # Add a pair here when you add a provider to LLM_PROVIDERS.
-  _SECRETS: LLM_GEMINI_API_KEY=gemini-api-key:latest,LLM_CLAUDE_API_KEY=anthropic-api-key:latest
+  # Every secret listed here must exist and have a version, or the deploy step fails.
+  _SECRETS: LLM_GEMINI_API_KEY=gemini-api-key:latest,LLM_OPENROUTER_API_KEY=openrouter-api-key:latest
 
 steps:
   # 1. Unit tests: a failing test stops the pipeline before anything is deployed.
