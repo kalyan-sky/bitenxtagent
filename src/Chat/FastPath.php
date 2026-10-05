@@ -26,16 +26,33 @@ final class FastPath
     private const RECENT_ORDERS = '/^\s*(show|list|see|view|check|get)?\s*(me\s+)?(all\s+)?(my\s+)?(recent|latest|last|past|previous)?\s*'
         . 'orders?(\s+(history|list|status))?\s*[?.!]*\s*$/i';
 
+    private const ORDER_COUNT = '/^\s*(how\s+many|total|count|number\s+of)\b.*\borders?\b[^.]*[?.!]*\s*$/i';
+    private const COUPONS = '/^\s*(are\s+there\s+|do\s+i\s+have\s+|any\s+|show\s+(me\s+)?|list\s+|my\s+|available\s+|what\s+)*'
+        . '(active\s+|available\s+)?(coupons?|coupon\s+codes?|promo\s+codes?|discount\s+codes?|offers?|discounts?)'
+        . '(\s+(available|for\s+me|do\s+i\s+have|are\s+there|now|today))*\s*[?.!]*\s*$/i';
+    private const CART = '/^\s*(show\s+(me\s+)?|what\'?s\s+in\s+|what\s+is\s+in\s+|view\s+|check\s+)?(my\s+)?cart\s*[?.!]*\s*$/i';
+
     /** @return string|null the reply, or null when the AI should handle the message */
     public function answer(string $text, SupportTools $tools): ?string
     {
         $text = trim($text);
-        if ($text === '' || mb_strlen($text) > self::MAX_LENGTH || preg_match(self::NEEDS_AI, $text)) {
+        // "how many" is a count, not a how-to question.
+        if ($text === '' || mb_strlen($text) > self::MAX_LENGTH
+            || preg_match(self::NEEDS_AI, (string) preg_replace('/\bhow\s+many\b/i', '', $text))) {
             return null;
         }
 
         if (preg_match(self::RECENT_ORDERS, $text)) {
             return $this->recentOrders($tools);
+        }
+        if (preg_match(self::ORDER_COUNT, $text)) {
+            return $this->orderCount($tools);
+        }
+        if (preg_match(self::COUPONS, $text)) {
+            return $this->coupons($tools);
+        }
+        if (preg_match(self::CART, $text)) {
+            return $this->cart($tools);
         }
 
         preg_match_all(self::ORDER_NUMBER, $text, $numbers);
@@ -115,6 +132,90 @@ final class FastPath
         }
         $lines[] = '';
         $lines[] = 'Send me an order number for its full details.';
+
+        return implode("\n", $lines);
+    }
+
+    private function orderCount(SupportTools $tools): ?string
+    {
+        $result = self::run($tools, 'get_order_stats', ['status' => '']);
+        if (isset($result['error'])) {
+            return self::errorReply($result['error'], '');
+        }
+        $total = (int) ($result['total_orders'] ?? 0);
+        if ($total === 0) {
+            return "You don't have any orders yet.";
+        }
+        $lines = [sprintf('You have %d order%s in total.', $total, $total === 1 ? '' : 's')];
+        foreach ($result['by_status'] ?? [] as $status => $count) {
+            $lines[] = "• {$status}: {$count}";
+        }
+        if (isset($result['note'])) {
+            $lines[] = '(' . $result['note'] . ')';
+        }
+        $lines[] = '';
+        $lines[] = 'Say "my orders" to see the latest ones, or send an order number for details.';
+
+        return implode("\n", $lines);
+    }
+
+    private function coupons(SupportTools $tools): ?string
+    {
+        $result = self::run($tools, 'get_available_coupons', ['code' => '']);
+        if (isset($result['error'])) {
+            return self::errorReply($result['error'], '');
+        }
+        if (($result['coupons'] ?? []) === []) {
+            return 'There are no active coupons on your account right now.';
+        }
+        $lines = ['Coupons you can use:'];
+        foreach ($result['coupons'] as $coupon) {
+            $lines[] = '• ' . implode(' · ', array_filter([
+                isset($coupon['code']) ? 'Code ' . $coupon['code'] : null,
+                $coupon['name'] ?? null,
+                $coupon['discount'] ?? null,
+                isset($coupon['valid_until']) ? 'valid until ' . self::date($coupon['valid_until']) : null,
+            ]));
+        }
+        $lines[] = '';
+        $lines[] = 'Enter the code in your cart before checkout.';
+
+        return implode("\n", $lines);
+    }
+
+    private function cart(SupportTools $tools): ?string
+    {
+        $result = self::run($tools, 'get_cart_summary', ['include_items' => true]);
+        if (isset($result['error'])) {
+            return self::errorReply($result['error'], '');
+        }
+        $cart = $result['cart'] ?? null;
+        if (!is_array($cart)) {
+            return 'Your cart is empty.';
+        }
+        $lines = ['Your cart:'];
+        foreach ($cart['items'] ?? [] as $item) {
+            $lines[] = '• ' . ($item['product'] ?? 'Item') . (isset($item['qty']) ? ' × ' . $item['qty'] : '');
+        }
+        $details = array_filter([
+            isset($cart['total']) ? 'Total: ' . $cart['total'] : null,
+            isset($cart['coupons_applied']) ? 'Coupon: ' . implode(', ', $cart['coupons_applied']) : null,
+        ]);
+        if ($details !== []) {
+            $lines[] = implode(' · ', $details);
+        }
+        $case = array_filter([
+            isset($cart['patient']) ? 'Patient: ' . $cart['patient'] : null,
+            isset($cart['doctor']) ? 'Doctor: ' . $cart['doctor'] : null,
+        ]);
+        if ($case !== []) {
+            $lines[] = implode(' · ', $case);
+        }
+        if (isset($cart['scan_upload'])) {
+            $scan = $cart['scan_upload'];
+            $lines[] = 'Scan upload: ' . trim(ucfirst((string) ($scan['status'] ?? '')) . ' (' . ($scan['files'] ?? 0) . ' file'
+                . (($scan['files'] ?? 0) === 1 ? '' : 's') . ')');
+        }
 
         return implode("\n", $lines);
     }

@@ -145,6 +145,107 @@ final class MagentoCustomerDataSource implements CustomerDataSource
         return $data;
     }
 
+    public function orderStats(string $token): array
+    {
+        // Totals come from Magento; the per-status split from the latest 100 orders.
+        $data = $this->client->query(
+            'query { customer { orders(currentPage: 1, pageSize: 100, sort: { sort_field: CREATED_AT, sort_direction: DESC }) '
+                . '{ total_count items { status } } } }',
+            [],
+            $token,
+            true,
+        );
+        $orders = $data['customer']['orders'] ?? [];
+        $byStatus = [];
+        foreach ($orders['items'] ?? [] as $order) {
+            $status = is_array($order) ? (string) ($order['status'] ?? '') : '';
+            if ($status !== '') {
+                $byStatus[$status] = ($byStatus[$status] ?? 0) + 1;
+            }
+        }
+        arsort($byStatus);
+        $counted = count($orders['items'] ?? []);
+
+        return ['total' => (int) ($orders['total_count'] ?? $counted), 'counted' => $counted, 'by_status' => $byStatus];
+    }
+
+    public function availableCoupons(string $token): array
+    {
+        $data = $this->queryDroppingUnknownFields(
+            'query { availableCoupons { %s } }',
+            ['name', 'code', 'description', 'discount_type', 'discount_amount', 'from_date', 'to_date'],
+            [],
+            $token,
+        );
+
+        return array_values(array_filter($data['availableCoupons'] ?? [], 'is_array'));
+    }
+
+    public function cartSummary(string $token): ?array
+    {
+        $data = $this->queryDroppingUnknownFields(
+            'query { customerCart { %s } }',
+            ['id', 'total_quantity', 'items { quantity product { name sku } }', 'prices { grand_total { value currency } }',
+                'applied_coupons { code }', 'custom_shipping_attributes { doctor_name }'],
+            [],
+            $token,
+        );
+        $cart = $data['customerCart'] ?? null;
+        if (!is_array($cart) || empty($cart['id'])) {
+            return null;
+        }
+
+        // The cart ID comes from the customer's own cart above, never from the
+        // chat, so these ID-based lookups can only ever read this customer's cart.
+        $cartId = (string) $cart['id'];
+        $extra = [
+            'patient' => ['query ($id: String) { getPatientFromCart(cart_id: $id) { name } }', 'getPatientFromCart'],
+            'doctor' => ['query ($id: String!) { getDoctorFromCart(cart_id: $id) { doctor_name } }', 'getDoctorFromCart'],
+            'scan' => ['query ($id: String!) { kixrScanStatus(cart_id: $id) { status files { status } } }', 'kixrScanStatus'],
+        ];
+        foreach ($extra as $key => [$query, $field]) {
+            try {
+                $cart[$key] = $this->client->query($query, ['id' => $cartId], $token, true)[$field] ?? null;
+            } catch (MagentoAuthException $e) {
+                throw $e;
+            } catch (MagentoException $e) {
+                $this->logger?->log('magento_cart_detail_unavailable', ['detail' => $key, 'error' => substr($e->getMessage(), 0, 300)]);
+                $cart[$key] = null;
+            }
+        }
+
+        return $cart;
+    }
+
+    /**
+     * For queries on Bitenxt types whose exact field names vary between
+     * environments: fields Magento says do not exist are dropped and the query
+     * is retried once, instead of the whole answer failing.
+     *
+     * @param list<string> $fields selections; a nested one starts with its field name
+     * @param array<string, mixed> $variables
+     * @return array<string, mixed>
+     */
+    private function queryDroppingUnknownFields(string $template, array $fields, array $variables, string $token): array
+    {
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                return $this->client->query(sprintf($template, implode(' ', $fields)), $variables, $token, true);
+            } catch (MagentoAuthException $e) {
+                throw $e;
+            } catch (MagentoException $e) {
+                preg_match_all('/Cannot query field \\\\?"(\w+)\\\\?"/', $e->getMessage(), $m);
+                $unknown = array_unique($m[1]);
+                $kept = array_values(array_filter($fields, static fn ($f) => !in_array(strtok($f, ' {'), $unknown, true)));
+                if ($attempt > 0 || $unknown === [] || $kept === [] || $kept === $fields) {
+                    throw $e;
+                }
+                $this->logger?->log('magento_unknown_fields', ['fields' => array_values($unknown)]);
+                $fields = $kept;
+            }
+        }
+    }
+
     public function findOwnOrdersByPatient(string $token, string $patientName, int $limit): array
     {
         // customerAllOrders is the Pro order-history query; it takes no

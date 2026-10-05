@@ -224,6 +224,7 @@ See `.env.example`. Key settings:
 | `MAX_OUTPUT_TOKENS` | 400 | Most tokens one AI reply can produce |
 | `TOKEN_LIMIT_CUSTOMER_PER_DAY` | 100000 | Per logged-in customer (input + output tokens) |
 | `TOKEN_LIMIT_GLOBAL_PER_HOUR` / `_PER_DAY` | 200000 / 1000000 | Whole service (1M/day caps Gemini Flash-Lite at about $5 a month) |
+| `PRO_PORTAL_URL` | (empty) | Pro portal link the bot gives customers, e.g. `https://uat-pro.bitenxt.com` |
 | `AI_HISTORY_TURNS` | 6 | Only the last N question/answer pairs are sent to the AI (keeps each call small) |
 | `FAST_PATH` | on | Answer order status and "my orders" from a template, with no AI call. `off` sends everything to the AI |
 | `MAX_MESSAGE_CHARS` | 2000 | |

@@ -164,4 +164,41 @@ final class MagentoCustomerDataSourceTest extends TestCase
         self::assertSame(['Crowns', 'Crowns / Anterior'], array_column($overview, 'category'));
         self::assertSame(['Zirconia Crown'], $overview[0]['products']);
     }
+
+    public function testUnknownCouponFieldsAreDroppedAndRetried(): void
+    {
+        $coupons = $this->source(function (array $request) {
+            if (str_contains($request['query'], 'discount_type')) {
+                return ['errors' => [
+                    ['message' => 'Cannot query field "discount_type" on type "Coupon".'],
+                    ['message' => 'Cannot query field "description" on type "Coupon".'],
+                ]];
+            }
+
+            return ['data' => ['availableCoupons' => [['name' => 'Festive', 'code' => 'FEST10', 'discount_amount' => 10]]]];
+        }, $requests)->availableCoupons('tok');
+
+        self::assertSame('FEST10', $coupons[0]['code']);
+        self::assertCount(2, $requests);
+        self::assertStringNotContainsString('description', $requests[1]['query']);
+    }
+
+    public function testCartDetailsUseOnlyTheCustomersOwnCartId(): void
+    {
+        $cart = $this->source(function (array $request) {
+            if (str_contains($request['query'], 'customerCart')) {
+                return ['data' => ['customerCart' => ['id' => 'own-cart', 'total_quantity' => 1, 'items' => []]]];
+            }
+            if (str_contains($request['query'], 'kixrScanStatus')) {
+                return ['errors' => [['message' => 'boom']], 'data' => null];
+            }
+            self::assertSame('own-cart', $request['variables']['id']);
+
+            return ['data' => ['getPatientFromCart' => ['name' => 'Asha Verma'], 'getDoctorFromCart' => ['doctor_name' => 'Dr. Rao']]];
+        })->cartSummary('tok');
+
+        self::assertSame('Asha V.', OrderPresenter::cart($cart)['patient']);
+        self::assertNull($cart['scan'], 'a failing detail is left out, not fatal');
+        self::assertStringContainsString('magento_cart_detail_unavailable', (string) file_get_contents($this->log));
+    }
 }

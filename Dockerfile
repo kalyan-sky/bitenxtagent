@@ -15,6 +15,9 @@ ENV PORT=8080 \
     TRUSTED_PROXY_HOPS=1 \
     STORAGE_DIR=/tmp/support-agent
 
+# APCu: shared in-memory cache for verified logins, the catalog and the GCP token.
+RUN pecl install apcu && docker-php-ext-enable apcu
+
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-support-agent.ini
 COPY docker/apache.conf /etc/apache2/sites-available/000-default.conf
 RUN sed -i 's/^Listen 80$/Listen ${PORT}/' /etc/apache2/ports.conf \

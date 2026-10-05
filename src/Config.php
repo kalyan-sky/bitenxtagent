@@ -50,6 +50,7 @@ final class Config
         public readonly int $tokenLimitGlobalPerHour = 200000,
         public readonly int $tokenLimitGlobalPerDay = 1000000,
         public readonly int $aiHistoryTurns = 6,
+        public readonly string $proPortalUrl = '',
         public readonly bool $fastPathEnabled = true,
     ) {
     }
@@ -91,6 +92,7 @@ final class Config
             tokenLimitGlobalPerHour: (int) $env('TOKEN_LIMIT_GLOBAL_PER_HOUR', '200000'),
             tokenLimitGlobalPerDay: (int) $env('TOKEN_LIMIT_GLOBAL_PER_DAY', '1000000'),
             aiHistoryTurns: max(1, (int) $env('AI_HISTORY_TURNS', '6')),
+            proPortalUrl: rtrim($env('PRO_PORTAL_URL'), '/'),
             fastPathEnabled: !in_array(strtolower($env('FAST_PATH', 'on')), ['off', 'false', '0', 'no'], true),
         );
     }

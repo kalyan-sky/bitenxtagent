@@ -30,6 +30,7 @@ final class FallbackAndBudgetTest extends TestCase
 
     protected function setUp(): void
     {
+        \Bitenxt\SupportAgent\Support\Cache::clear();
         $this->dir = sys_get_temp_dir() . '/bnx-llm-' . bin2hex(random_bytes(4));
         mkdir($this->dir . '/kb', 0700, true);
     }

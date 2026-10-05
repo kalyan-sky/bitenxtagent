@@ -105,4 +105,41 @@ final class FakeMagento implements CustomerDataSource
     {
         return [['category' => 'Crowns & Bridges', 'product_count' => 2, 'products' => ['Zirconia Crown', 'E.max Crown']]];
     }
+
+    public function orderStats(string $token): array
+    {
+        $byStatus = [];
+        foreach ($this->accounts[$token]['orders'] ?? [] as $order) {
+            $byStatus[$order['status']] = ($byStatus[$order['status']] ?? 0) + 1;
+        }
+        $count = count($this->accounts[$token]['orders'] ?? []);
+
+        return ['total' => $count, 'counted' => $count, 'by_status' => $byStatus];
+    }
+
+    public function availableCoupons(string $token): array
+    {
+        return [
+            ['rule_id' => 7, 'name' => 'Festive offer', 'code' => 'FEST10', 'discount_type' => 'by_percent', 'discount_amount' => '10.0000',
+                'from_date' => '2026-01-01', 'to_date' => '2099-12-31'],
+            ['rule_id' => 3, 'name' => 'Old offer', 'code' => 'OLD5', 'discount_type' => 'by_fixed', 'discount_amount' => 5, 'to_date' => '2020-01-01'],
+        ];
+    }
+
+    public function cartSummary(string $token): ?array
+    {
+        if ($token !== 'token-clinic-a') {
+            return null;
+        }
+
+        return [
+            'id' => 'masked-cart-a', 'total_quantity' => 2,
+            'items' => [['quantity' => 2, 'product' => ['name' => 'Zirconia Crown', 'sku' => 'ZC-1']]],
+            'prices' => ['grand_total' => ['value' => 450, 'currency' => 'INR']],
+            'applied_coupons' => [['code' => 'FEST10']],
+            'patient' => ['name' => 'John Michael Smith', 'age' => 52, 'gender' => 'M'],
+            'doctor' => ['doctor_name' => 'Dr. Rao'],
+            'scan' => ['status' => 'validated', 'files' => [['name' => 'john-smith-upper.stl', 'status' => 'valid'], ['name' => 'lower.stl', 'status' => 'valid']]],
+        ];
+    }
 }

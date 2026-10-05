@@ -26,6 +26,15 @@ interface CustomerDataSource
     /** @return list<array<string, mixed>> follow-ups on an order (caller must have checked ownership) */
     public function orderFollowUps(string $token, string $orderNumber): array;
 
+    /** @return array{total: int, counted: int, by_status: array<string, int>} the customer's own order counts */
+    public function orderStats(string $token): array;
+
+    /** @return list<array<string, mixed>> coupons the customer can use (raw Magento shape) */
+    public function availableCoupons(string $token): array;
+
+    /** @return array<string, mixed>|null the customer's own active cart, or null if empty */
+    public function cartSummary(string $token): ?array;
+
     /** @return list<array<string, mixed>> catalog products matching a search phrase */
     public function searchProducts(string $token, string $phrase, int $limit): array;
 

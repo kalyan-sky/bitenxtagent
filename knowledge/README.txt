@@ -10,7 +10,7 @@ Format: one topic per "## " heading. Short sections (3-8 sentences) work best.
 
 The files in templates/ are NOT loaded. Copy one up a level, replace every
 [bracketed] placeholder with your real policy, and delete what doesn't apply.
-using-the-pro-portal.md is a starter article written from the portal's features;
+The articles here were written from the portal's features (API reference);
 check every step against the live Pro screens and correct the wording.
 
 Until a topic has a real article here, the bot will say it isn't sure and offer

@@ -11,6 +11,7 @@ use Bitenxt\SupportAgent\Llm\LlmResponse;
 use Bitenxt\SupportAgent\Llm\LlmUnavailableException;
 use Bitenxt\SupportAgent\Session\ChatSession;
 use Bitenxt\SupportAgent\Support\Logger;
+use Bitenxt\SupportAgent\Support\Timing;
 
 /**
  * Tool-use loop over a chain of AI providers (e.g. Gemini first, Claude as
@@ -98,7 +99,8 @@ final class SupportAgent
         for ($round = 0; $round <= self::MAX_TOOL_ROUNDS; $round++) {
             $reservation = $this->budget->reserve($customerKey, $provider->name(), $this->estimate($messages));
             try {
-                $response = $provider->complete($this->systemPrompt, $definitions, $messages, $this->maxOutputTokens);
+                $started = hrtime(true);
+                $response = Timing::measure('llm', fn () => $provider->complete($this->systemPrompt, $definitions, $messages, $this->maxOutputTokens));
             } catch (LlmUnavailableException $e) {
                 $this->budget->release($reservation);
                 throw $e;
@@ -111,6 +113,7 @@ final class SupportAgent
                 'input_tokens' => $response->inputTokens,
                 'output_tokens' => $response->outputTokens,
                 'stop_reason' => $response->stopReason,
+                'ms' => (int) ((hrtime(true) - $started) / 1e6),
             ]);
 
             if ($response->stopReason === LlmResponse::REFUSAL) {

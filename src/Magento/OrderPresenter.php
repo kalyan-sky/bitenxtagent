@@ -71,6 +71,88 @@ final class OrderPresenter
         ]);
     }
 
+    /**
+     * A coupon the customer can use: name, code, discount and dates only.
+     * Returns null for coupons that have already ended.
+     *
+     * @param array<string, mixed> $coupon
+     */
+    public static function coupon(array $coupon, ?int $today = null): ?array
+    {
+        $today ??= strtotime('today');
+        $ends = self::str($coupon['to_date'] ?? null);
+        if ($ends !== null && ($end = strtotime($ends)) !== false && $end < $today) {
+            return null;
+        }
+        $amount = $coupon['discount_amount'] ?? null;
+        $type = strtolower((string) ($coupon['discount_type'] ?? ''));
+        $discount = is_numeric($amount)
+            ? (str_contains($type, 'percent') || str_contains($type, 'by_percent')
+                ? rtrim(rtrim(number_format((float) $amount, 2), '0'), '.') . '% off'
+                : number_format((float) $amount, 2) . ' off')
+            : null;
+
+        $view = array_filter([
+            'name' => self::str($coupon['name'] ?? null),
+            'code' => self::str($coupon['code'] ?? null),
+            'details' => self::truncate(self::str($coupon['description'] ?? null), 200),
+            'discount' => $discount,
+            'valid_from' => self::str($coupon['from_date'] ?? null),
+            'valid_until' => $ends,
+        ], static fn ($v) => $v !== null && $v !== '');
+
+        return isset($view['code']) || isset($view['name']) ? $view : null;
+    }
+
+    /**
+     * The customer's own cart: items, total, coupon, patient label, doctor and
+     * scan upload status. No file names (they can contain patient names).
+     *
+     * @param array<string, mixed> $cart
+     */
+    public static function cart(array $cart): array
+    {
+        $items = [];
+        foreach (array_slice($cart['items'] ?? [], 0, 20) as $item) {
+            if (is_array($item)) {
+                $items[] = array_filter([
+                    'product' => self::str($item['product']['name'] ?? null),
+                    'qty' => self::num($item['quantity'] ?? null),
+                ], static fn ($v) => $v !== null);
+            }
+        }
+        $total = $cart['prices']['grand_total'] ?? null;
+
+        $scan = null;
+        if (is_array($cart['scan'] ?? null)) {
+            $fileStatuses = [];
+            foreach ($cart['scan']['files'] ?? [] as $file) {
+                $state = is_array($file) ? (self::str($file['status'] ?? null) ?? 'unknown') : 'unknown';
+                $fileStatuses[$state] = ($fileStatuses[$state] ?? 0) + 1;
+            }
+            $scan = array_filter([
+                'status' => self::str($cart['scan']['status'] ?? null),
+                'files' => count($cart['scan']['files'] ?? []),
+                'file_statuses' => $fileStatuses ?: null,
+            ], static fn ($v) => $v !== null);
+        }
+
+        return array_filter([
+            'item_count' => self::num($cart['total_quantity'] ?? null) ?? count($items),
+            'items' => $items ?: null,
+            'total' => is_array($total) && isset($total['value'])
+                ? number_format((float) $total['value'], 2) . ' ' . self::str($total['currency'] ?? '')
+                : null,
+            'coupons_applied' => array_values(array_filter(array_map(
+                static fn ($c) => is_array($c) ? self::str($c['code'] ?? null) : null,
+                $cart['applied_coupons'] ?? [],
+            ))) ?: null,
+            'patient' => self::patientLabel($cart['patient']['name'] ?? null),
+            'doctor' => self::str($cart['doctor']['doctor_name'] ?? $cart['custom_shipping_attributes']['doctor_name'] ?? null),
+            'scan_upload' => $scan,
+        ], static fn ($v) => $v !== null && $v !== '');
+    }
+
     /** @param array<string, mixed> $product */
     public static function product(array $product): array
     {

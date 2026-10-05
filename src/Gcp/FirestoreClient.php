@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Bitenxt\SupportAgent\Gcp;
 
+use Bitenxt\SupportAgent\Support\Cache;
+use Bitenxt\SupportAgent\Support\Http;
+use Bitenxt\SupportAgent\Support\Timing;
+
 /**
  * Tiny Firestore REST client: just the calls the chatbot needs, without the
  * gRPC extension the official library requires. On Cloud Run it
@@ -15,8 +19,6 @@ class FirestoreClient
 {
     private const METADATA = 'http://metadata.google.internal/computeMetadata/v1/';
 
-    private static ?string $accessToken = null;
-    private static int $accessTokenExpires = 0;
 
     private readonly string $baseUrl;
     private readonly string $documentsPath;
@@ -127,7 +129,7 @@ class FirestoreClient
         if ($this->emulatorHost === '') {
             $headers[] = 'Authorization: Bearer ' . $this->accessToken();
         }
-        $ch = curl_init($this->baseUrl . $path);
+        $ch = Http::handle($this->baseUrl . $path);
         curl_setopt_array($ch, [
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_HTTPHEADER => $headers,
@@ -138,10 +140,9 @@ class FirestoreClient
         if ($payload !== null) {
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
         }
-        $raw = curl_exec($ch);
+        $raw = Timing::measure('firestore', static fn () => curl_exec($ch));
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
-        curl_close($ch);
 
         if ($raw === false) {
             throw new \RuntimeException('Firestore request failed: ' . $error);
@@ -160,17 +161,18 @@ class FirestoreClient
 
     private function accessToken(): string
     {
-        // Cached per PHP worker process; tokens last about an hour.
-        if (self::$accessToken === null || self::$accessTokenExpires < time() + 60) {
-            $token = json_decode($this->metadata('instance/service-accounts/default/token'), true);
-            if (!isset($token['access_token'])) {
-                throw new \RuntimeException('Could not get a service account token from the metadata server');
-            }
-            self::$accessToken = $token['access_token'];
-            self::$accessTokenExpires = time() + (int) ($token['expires_in'] ?? 300);
+        // Shared by the instance's PHP workers (APCu); tokens last about an hour.
+        $cached = Cache::get('gcp_access_token');
+        if (is_string($cached)) {
+            return $cached;
         }
+        $token = json_decode($this->metadata('instance/service-accounts/default/token'), true);
+        if (!isset($token['access_token'])) {
+            throw new \RuntimeException('Could not get a service account token from the metadata server');
+        }
+        Cache::set('gcp_access_token', $token['access_token'], max(30, (int) ($token['expires_in'] ?? 300) - 120));
 
-        return self::$accessToken;
+        return $token['access_token'];
     }
 
     private function metadata(string $path): string

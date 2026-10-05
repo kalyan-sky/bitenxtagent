@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Bitenxt\SupportAgent\Magento;
 
+use Bitenxt\SupportAgent\Support\Http;
+use Bitenxt\SupportAgent\Support\Timing;
+
 /**
  * Minimal Magento GraphQL transport. It always sends the *customer's* bearer
  * token, so Magento's own authorization decides what data comes back; this
@@ -33,10 +36,10 @@ class GraphQLClient
             $headers[] = 'Authorization: Bearer ' . $customerToken;
         }
 
-        [$status, $body] = $this->send(
+        [$status, $body] = Timing::measure('magento', fn () => $this->send(
             json_encode(['query' => $query, 'variables' => (object) $variables], JSON_THROW_ON_ERROR),
             $headers,
-        );
+        ));
 
         if ($status === 401 || $status === 403) {
             throw new MagentoAuthException('Magento rejected the customer token (HTTP ' . $status . ')');
@@ -75,7 +78,7 @@ class GraphQLClient
      */
     protected function send(string $body, array $headers): array
     {
-        $ch = curl_init($this->endpoint);
+        $ch = Http::handle($this->endpoint);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $body,
@@ -87,7 +90,6 @@ class GraphQLClient
         $response = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlError = curl_error($ch);
-        curl_close($ch);
 
         if ($response === false) {
             throw new MagentoException('Magento request failed: ' . $curlError);

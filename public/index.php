@@ -58,6 +58,7 @@ if ($path === '/widget.js') {
 $routes = [
     'POST /chat' => 'chat',
     'GET /chat/history' => 'history',
+    'POST /chat/feedback' => 'feedback',
 ];
 $route = $routes[$method . ' ' . $path] ?? null;
 if ($route === null) {
@@ -94,6 +95,9 @@ try {
             $respond(400, ['error' => 'message_required']);
         }
         $result = $chat->handle($body['message'], $token, $clientIp);
+    } elseif ($route === 'feedback') {
+        $body = json_decode((string) file_get_contents('php://input', length: 1024), true);
+        $result = $chat->feedback($token, $clientIp, (string) ($body['rating'] ?? ''), (int) ($body['at'] ?? 0));
     } else {
         $result = $chat->history($token, $clientIp);
     }

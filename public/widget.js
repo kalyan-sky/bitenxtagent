@@ -78,7 +78,15 @@
       '.bnx-form button{border:0;background:#0b6e8a;color:#fff;padding:0 16px;cursor:pointer;font-weight:600}',
       '.bnx-btn.ready{display:block}',
       '.bnx-time{text-align:center;color:#6b7680;font-size:12px;margin:12px 0 4px}',
-      '.bnx-form button:disabled{opacity:.5}'
+      '.bnx-form button:disabled{opacity:.5}',
+      '.bnx-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}',
+      '.bnx-chip{border:1px solid #0b6e8a;background:#fff;color:#0b6e8a;border-radius:16px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}',
+      '.bnx-chip:hover{background:#e8f3f6}',
+      '.bnx-rate{display:flex;gap:4px;margin:-2px 0 6px}',
+      '.bnx-rate button{border:0;background:none;cursor:pointer;font-size:14px;opacity:.55;padding:2px 4px}',
+      '.bnx-rate button:hover{opacity:1}',
+      '.bnx-rate span{color:#6b7680;font-size:12px}',
+      '.bnx-typing{color:#6b7680;font-style:italic}'
     ].join('');
     document.head.appendChild(style);
 
@@ -101,6 +109,55 @@
     document.body.appendChild(button);
 
     var historyUrl = apiUrl.replace(/\/?$/, '') + '/history';
+    var feedbackUrl = apiUrl.replace(/\/?$/, '') + '/feedback';
+    var suggestions = options.suggestions || [
+      'Track my order', 'My recent orders', 'How many orders do I have?', 'Any coupons for me?',
+      "What's in my cart?", 'How do I place an order?', 'What products are available?', 'Talk to support'
+    ];
+
+    // Quick replies, like Amazon's chat: tap one to send it.
+    function addChips() {
+      var chips = el('div', { 'class': 'bnx-chips' });
+      suggestions.forEach(function (text) {
+        var chip = el('button', { 'class': 'bnx-chip', type: 'button' }, text);
+        chip.addEventListener('click', function () {
+          if (send.disabled) return;
+          chips.remove();
+          input.value = text === 'Track my order' ? '' : text;
+          if (text === 'Track my order') {
+            add('Sure! Send me the order number (for example 671).', 'bot');
+            input.focus();
+            return;
+          }
+          form.requestSubmit();
+        });
+        chips.appendChild(chip);
+      });
+      log.appendChild(chips);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    // 👍/👎 under each new answer; helps find answers that need better content.
+    function addRating(at) {
+      var token = currentToken();
+      if (!token || !at) return;
+      var bar = el('div', { 'class': 'bnx-rate' });
+      [['up', '👍', 'Helpful'], ['down', '👎', 'Not helpful']].forEach(function (r) {
+        var b = el('button', { type: 'button', 'aria-label': r[2], title: r[2] }, r[1]);
+        b.addEventListener('click', function () {
+          bar.textContent = '';
+          bar.appendChild(el('span', {}, 'Thanks for the feedback'));
+          fetch(feedbackUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            body: JSON.stringify({ rating: r[0], at: at })
+          }).catch(function () {});
+        });
+        bar.appendChild(b);
+      });
+      log.appendChild(bar);
+      log.scrollTop = log.scrollHeight;
+    }
     var lastAt = 0;
     var historyLoadedFor = null;
 
@@ -154,12 +211,14 @@
           var messages = res.status === 200 && res.data.messages ? res.data.messages : [];
           messages.forEach(function (m) { add(m.text, m.role, m.at); });
           if (!messages.length) add(greeting, 'bot');
+          addChips();
           if (res.status === 401) add(res.data.reply || 'Please log in again.', 'bot');
         })
         .catch(function () {
           historyLoadedFor = null; // try again next time the chat is opened
           clearLog();
           add(greeting, 'bot');
+          addChips();
         })
         .finally(function () { send.disabled = false; });
     }
@@ -204,7 +263,8 @@
       input.value = '';
       add(text, 'user');
       send.disabled = true;
-      var pending = add('…', 'bot');
+      var pending = add('Typing…', 'bot');
+      pending.classList.add('bnx-typing');
 
       fetch(apiUrl, {
         method: 'POST',
@@ -221,11 +281,13 @@
             return;
           }
           pending.textContent = res.data.reply || 'Sorry, something went wrong. Please try again.';
+          if (res.status === 200) addRating(res.data.at);
         })
         .catch(function () {
           pending.textContent = 'Sorry, I could not reach support right now. Please try again.';
         })
         .finally(function () {
+          pending.classList.remove('bnx-typing');
           send.disabled = false;
           input.focus();
         });

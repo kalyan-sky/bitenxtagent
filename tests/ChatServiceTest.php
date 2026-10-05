@@ -28,6 +28,7 @@ final class ChatServiceTest extends TestCase
 
     protected function setUp(): void
     {
+        \Bitenxt\SupportAgent\Support\Cache::clear();
         $this->dir = sys_get_temp_dir() . '/bnx-test-' . bin2hex(random_bytes(4));
         mkdir($this->dir . '/kb', 0700, true);
         file_put_contents($this->dir . '/kb/shipping.md', "# Shipping\n\n## Turnaround times\nCrowns take 5 working days.\n");
@@ -334,7 +335,11 @@ final class ChatServiceTest extends TestCase
         $kb = new KnowledgeBase(dirname(__DIR__) . '/knowledge');
 
         self::assertSame('How to place an order', $kb->search('how to place order?')[0]['title']);
-        self::assertSame('Uploading scans and case files', $kb->search('upload scan')[0]['title']);
+        self::assertSame('Uploading scan files', $kb->search('upload scan')[0]['title']);
+        self::assertSame('Using a coupon', $kb->search('do you have any discount or promo?')[0]['title']);
+        self::assertSame('Booking an appointment or consultation', $kb->search('book a demo call')[0]['title']);
+        self::assertSame('KIXR scans', $kb->search('kixr validation failed')[0]['title']);
+        self::assertSame('Reordering a previous order', $kb->search('order the same thing again')[0]['title']);
     }
 
     public function testFastPathAnswersOrderStatusWithoutTheAi(): void
@@ -407,6 +412,59 @@ final class ChatServiceTest extends TestCase
         self::assertStringNotContainsString('Second question', $last);
         self::assertStringContainsString('Third question', $last);
         self::assertStringContainsString('Fourth question', $last);
+    }
+
+    public function testFastPathCountsOrdersListsCouponsAndShowsTheCart(): void
+    {
+        $claude = new ScriptedClaude([]);
+        $service = $this->service($claude, fastPath: true);
+
+        $count = $service->handle('how many orders do I have?', 'token-clinic-a', '10.0.0.1')['reply'];
+        self::assertStringContainsString('You have 1 order in total.', $count);
+        self::assertStringContainsString('• Processing: 1', $count);
+
+        $coupons = $service->handle('are there any coupons available for me?', 'token-clinic-a', '10.0.0.1')['reply'];
+        self::assertStringContainsString('Code FEST10 · Festive offer · 10% off · valid until 31 Dec 2099', $coupons);
+        self::assertStringNotContainsString('OLD5', $coupons, 'expired coupons are hidden');
+
+        $cart = $service->handle("what's in my cart?", 'token-clinic-a', '10.0.0.1')['reply'];
+        self::assertStringContainsString('• Zirconia Crown × 2', $cart);
+        self::assertStringContainsString('Patient: John S. · Doctor: Dr. Rao', $cart);
+        self::assertStringContainsString('Scan upload: Validated (2 files)', $cart);
+        self::assertStringNotContainsString('john-smith', $cart, 'file names can hold patient names');
+        self::assertStringNotContainsString('52', $cart);
+
+        self::assertSame('Your cart is empty.', $service->handle('my cart', 'token-clinic-b', '10.0.0.2')['reply']);
+        self::assertSame([], $claude->requests);
+    }
+
+    public function testCouponAndCartToolsGiveTheAiOnlySafeFields(): void
+    {
+        $claude = new ScriptedClaude([
+            ScriptedClaude::toolCall('get_available_coupons', ['code' => 'fest10'], 'toolu_a'),
+            ScriptedClaude::toolCall('get_cart_summary', ['include_items' => false], 'toolu_b'),
+            ScriptedClaude::text('FEST10 gives 10% off, and it is already applied to your cart.'),
+        ]);
+        $this->service($claude)->handle('Can I use FEST10 on my current cart?', 'token-clinic-a', '10.0.0.1');
+
+        [$coupons, $cart] = self::toolResults($claude);
+        self::assertSame('FEST10', $coupons['coupons'][0]['code']);
+        self::assertArrayNotHasKey('rule_id', $coupons['coupons'][0]);
+        self::assertArrayNotHasKey('items', $cart['cart']);
+        self::assertSame(['FEST10'], $cart['cart']['coupons_applied']);
+        self::assertStringNotContainsString('masked-cart-a', (string) json_encode($cart));
+    }
+
+    public function testFeedbackIsLoggedForSignedInCustomersOnly(): void
+    {
+        $service = $this->service(new ScriptedClaude([ScriptedClaude::text('Hello!')]));
+        $at = $service->handle('Hi', 'token-clinic-a', '10.0.0.1')['at'];
+
+        self::assertSame(200, $service->feedback('token-clinic-a', '10.0.0.1', 'down', $at)['status']);
+        self::assertSame(400, $service->feedback('token-clinic-a', '10.0.0.1', 'meh', $at)['status']);
+        self::assertSame(401, $service->feedback(null, '10.0.0.1', 'up', $at)['status']);
+        $log = (string) file_get_contents($this->dir . '/log.jsonl');
+        self::assertStringContainsString('"rating":"down"', $log);
     }
 
     public function testNoToolAcceptsAnIdentityChosenByTheModel(): void
