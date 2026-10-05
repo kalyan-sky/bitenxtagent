@@ -104,7 +104,14 @@ final class ChatService
             [$session->messages, $session->provider] = [[], 'fast_path'];
         } else {
             // Provider errors, fallback and token limits are all handled inside the agent.
-            $result = $this->agent->respond($session, $input->text, $tools, $owner);
+            try {
+                $result = $this->agent->respond($session, $input->text, $tools, $owner);
+            } catch (\Throwable $e) {
+                $this->logger->log('agent_exception', ['session' => $session->id, 'class' => $e::class,
+                    'detail' => mb_substr($e->getMessage(), 0, 500), 'at' => basename($e->getFile()) . ':' . $e->getLine()]);
+                [$session->messages, $session->provider] = [$previousMessages, $previousProvider];
+                $result = ['reply' => SupportAgent::FALLBACK_REPLY, 'stop_reason' => 'exception'];
+            }
         }
         if ($result['stop_reason'] === 'all_providers_failed') {
             $this->logger->log('llm_all_failed', ['session' => $session->id]);

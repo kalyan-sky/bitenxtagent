@@ -78,8 +78,14 @@ final class FakeMagento implements CustomerDataSource
         return null;
     }
 
+    public ?\Throwable $patientSearchError = null;
+
     public function findOwnOrdersByPatient(string $token, string $patientName, int $limit): array
     {
+        if ($this->patientSearchError !== null) {
+            throw $this->patientSearchError;
+        }
+
         return array_values(array_filter(
             $this->accounts[$token]['orders'] ?? [],
             static fn ($o) => stripos($o['patient_name'] ?? '', $patientName) !== false,

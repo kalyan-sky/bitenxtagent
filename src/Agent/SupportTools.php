@@ -182,12 +182,20 @@ final class SupportTools
             // lookup failed, so it cannot repeat internals to the customer.
             $this->logger->log('magento_error', ['session' => $this->session->id, 'tool' => $name, 'detail' => $e->getMessage()]);
             $result = ['error' => 'temporarily_unavailable', 'message' => 'That information is unavailable right now. Offer to try again later or to escalate.'];
+        } catch (\Throwable $e) {
+            // Unexpected data (e.g. a malformed row) must not crash the chat.
+            $this->logger->log('tool_exception', ['session' => $this->session->id, 'tool' => $name,
+                'class' => $e::class, 'detail' => mb_substr($e->getMessage(), 0, 500), 'at' => basename($e->getFile()) . ':' . $e->getLine()]);
+            $result = ['error' => 'temporarily_unavailable', 'message' => 'That information is unavailable right now. Offer to try again later or to escalate.'];
         }
 
         $isError = isset($result['error']);
         $this->logger->log('tool_call', ['session' => $this->session->id, 'tool' => $name, 'ok' => !$isError]);
 
-        return [json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $isError];
+        // Bad bytes in Magento text (e.g. a pasted patient name) must not break the reply.
+        $json = json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+
+        return [is_string($json) ? $json : '{"error":"temporarily_unavailable"}', $isError];
     }
 
     /** @param array<string, mixed> $input */

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Bitenxt\SupportAgent\Magento;
 
+use Bitenxt\SupportAgent\Support\Cache;
 use Bitenxt\SupportAgent\Support\Logger;
 
 /**
@@ -82,7 +83,7 @@ final class MagentoCustomerDataSource implements CustomerDataSource
             $token,
         );
 
-        return array_values($data['customer']['orders']['items'] ?? []);
+        return array_values(array_filter($data['customer']['orders']['items'] ?? [], 'is_array')); // a failed row comes back as null
     }
 
     public function findOwnOrder(string $token, string $orderNumber): ?array
@@ -173,7 +174,7 @@ final class MagentoCustomerDataSource implements CustomerDataSource
     {
         $data = $this->queryDroppingUnknownFields(
             'query { availableCoupons { %s } }',
-            ['name', 'code', 'description', 'discount_type', 'discount_amount', 'from_date', 'to_date'],
+            ['name', 'code', 'coupon_code', 'description', 'discount_type', 'discount_amount', 'from_date', 'to_date'],
             [],
             $token,
         );
@@ -228,6 +229,11 @@ final class MagentoCustomerDataSource implements CustomerDataSource
      */
     private function queryDroppingUnknownFields(string $template, array $fields, array $variables, string $token): array
     {
+        // Fields this environment rejected before are left out straight away.
+        $cacheKey = 'unknown_fields:' . md5($template);
+        $known = Cache::get($cacheKey);
+        $unknownBefore = is_array($known) ? $known : [];
+        $fields = array_values(array_filter($fields, static fn ($f) => !in_array(strtok($f, ' {'), $unknownBefore, true)));
         for ($attempt = 0; ; $attempt++) {
             try {
                 return $this->client->query(sprintf($template, implode(' ', $fields)), $variables, $token, true);
@@ -241,6 +247,7 @@ final class MagentoCustomerDataSource implements CustomerDataSource
                     throw $e;
                 }
                 $this->logger?->log('magento_unknown_fields', ['fields' => array_values($unknown)]);
+                Cache::set($cacheKey, array_values(array_unique(array_merge($unknownBefore, $unknown))), 3600);
                 $fields = $kept;
             }
         }
@@ -254,7 +261,7 @@ final class MagentoCustomerDataSource implements CustomerDataSource
             . 'filter: { patient_name: $name }) { items { number order_date order_status_title patient_name } } }';
         $data = $this->client->query($query, ['name' => $patientName, 'pageSize' => $limit], $token, true);
 
-        return array_values($data['customerAllOrders']['items'] ?? []);
+        return array_values(array_filter($data['customerAllOrders']['items'] ?? [], 'is_array')); // a failed row comes back as null
     }
 
     public function orderFollowUps(string $token, string $orderNumber): array
@@ -263,7 +270,7 @@ final class MagentoCustomerDataSource implements CustomerDataSource
             . '{ customer_id sku note created_at } }';
         $data = $this->client->query($query, ['incrementId' => $orderNumber], $token);
 
-        return array_values($data['getOrderFollowUps'] ?? []);
+        return array_values(array_filter($data['getOrderFollowUps'] ?? [], 'is_array')); // a failed row comes back as null
     }
 
     /**
