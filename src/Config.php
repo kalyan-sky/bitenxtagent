@@ -46,7 +46,7 @@ final class Config
         /** most tokens one AI reply may generate */
         public readonly int $maxOutputTokens = 400,
         /** token limits (input + output); 0 = no limit */
-        public readonly int $tokenLimitCustomerPerDay = 100000,
+        public readonly int $tokenLimitCustomerPerDay = 300000,
         public readonly int $tokenLimitGlobalPerHour = 200000,
         public readonly int $tokenLimitGlobalPerDay = 1000000,
         public readonly int $aiHistoryTurns = 6,
@@ -88,7 +88,7 @@ final class Config
             trustedProxyHops: (int) $env('TRUSTED_PROXY_HOPS', '0'),
             conversationIdleSeconds: 60 * (int) $env('CONVERSATION_IDLE_MINUTES', '30'),
             maxOutputTokens: (int) $env('MAX_OUTPUT_TOKENS', '400'),
-            tokenLimitCustomerPerDay: (int) $env('TOKEN_LIMIT_CUSTOMER_PER_DAY', '100000'),
+            tokenLimitCustomerPerDay: (int) $env('TOKEN_LIMIT_CUSTOMER_PER_DAY', '300000'),
             tokenLimitGlobalPerHour: (int) $env('TOKEN_LIMIT_GLOBAL_PER_HOUR', '200000'),
             tokenLimitGlobalPerDay: (int) $env('TOKEN_LIMIT_GLOBAL_PER_DAY', '1000000'),
             aiHistoryTurns: max(1, (int) $env('AI_HISTORY_TURNS', '6')),

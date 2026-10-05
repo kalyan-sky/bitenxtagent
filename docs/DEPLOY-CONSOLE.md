@@ -134,7 +134,7 @@ variables**. Add:
 | `HISTORY_RETENTION_DAYS` | `90` | no (default) |
 | `CONVERSATION_IDLE_MINUTES` | `30` | no (default) |
 | `MAX_OUTPUT_TOKENS` | `400` (most tokens one AI reply can produce) | no (default) |
-| `TOKEN_LIMIT_CUSTOMER_PER_DAY` | `100000` | no (default) |
+| `TOKEN_LIMIT_CUSTOMER_PER_DAY` | `300000` | no (default) |
 | `TOKEN_LIMIT_GLOBAL_PER_HOUR` | `200000` | no (default) |
 | `TOKEN_LIMIT_GLOBAL_PER_DAY` | `1000000` | no (default) |
 | `LLM_GEMINI_DAILY_TOKEN_LIMIT` | e.g. `3000000`; over it, OpenRouter answers instead (`0` = no limit) | no |
@@ -165,7 +165,7 @@ The app itself stops calling the AI when a limit is reached:
 | Limit | Variable | What the customer sees |
 |---|---|---|
 | Per reply | `MAX_OUTPUT_TOKENS` (400) | (answers are just capped) |
-| Per customer per day | `TOKEN_LIMIT_CUSTOMER_PER_DAY` (100,000) | "You've reached today's chat limit…" |
+| Per customer per day | `TOKEN_LIMIT_CUSTOMER_PER_DAY` (300,000) | "You've reached today's chat limit…" |
 | Whole service per hour / day | `TOKEN_LIMIT_GLOBAL_PER_HOUR` (200k) / `_PER_DAY` (1M) | "Chat is temporarily unavailable" |
 | One provider per day | `LLM_<NAME>_DAILY_TOKEN_LIMIT` | nothing: the next provider answers |
 

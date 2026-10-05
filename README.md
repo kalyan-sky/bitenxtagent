@@ -222,7 +222,7 @@ See `.env.example`. Key settings:
 | `LLM_CLAUDE_MODEL` / `LLM_CLAUDE_EFFORT` | `claude-opus-5-5` / `low` | Only if you call Anthropic directly (`claude` in `LLM_PROVIDERS`) |
 | `LLM_<NAME>_DAILY_TOKEN_LIMIT` | 0 (none) | Per-provider cap; over it, the next provider answers |
 | `MAX_OUTPUT_TOKENS` | 400 | Most tokens one AI reply can produce |
-| `TOKEN_LIMIT_CUSTOMER_PER_DAY` | 100000 | Per logged-in customer (input + output tokens) |
+| `TOKEN_LIMIT_CUSTOMER_PER_DAY` | 300000 | Per logged-in customer (input + output tokens) |
 | `TOKEN_LIMIT_GLOBAL_PER_HOUR` / `_PER_DAY` | 200000 / 1000000 | Whole service (1M/day caps Gemini Flash-Lite at about $5 a month) |
 | `PRO_PORTAL_URL` | (empty) | Pro portal link the bot gives customers, e.g. `https://uat-pro.bitenxt.com` |
 | `AI_HISTORY_TURNS` | 6 | Only the last N question/answer pairs are sent to the AI (keeps each call small) |

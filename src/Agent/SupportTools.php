@@ -74,6 +74,15 @@ final class SupportTools
                 'strict' => true,
             ],
             [
+                'name' => 'list_patients',
+                'description' => "List the patients on the signed-in customer's recent orders (short labels), with how many orders "
+                    . 'each has and their latest order. Use for "list my patients" or to find a patient before looking up orders.',
+                'inputSchema' => $object([
+                    'name' => ['type' => 'string', 'description' => 'Part of a patient name to narrow the list, or an empty string for all.'],
+                ], ['name']),
+                'strict' => true,
+            ],
+            [
                 'name' => 'get_available_coupons',
                 'description' => 'List the coupons the signed-in customer can use now (name, code, discount, validity). '
                     . 'Use for any question about coupons, discounts, offers or promo codes.',
@@ -164,6 +173,7 @@ final class SupportTools
                 'get_recent_orders' => $this->recentOrders($input),
                 'get_order_status' => $this->orderStatus($input),
                 'get_order_stats' => $this->orderStats($input),
+                'list_patients' => $this->patients($input),
                 'get_available_coupons' => $this->coupons($input),
                 'get_cart_summary' => $this->cart($input),
                 'find_orders_by_patient' => $this->ordersByPatient($input),
@@ -255,6 +265,41 @@ final class SupportTools
             'note' => $stats['total'] > $stats['counted']
                 ? "Status counts cover the latest {$stats['counted']} orders." : null,
         ], static fn ($v) => $v !== null);
+    }
+
+    /** @param array<string, mixed> $input */
+    private function patients(array $input): array
+    {
+        if ($error = $this->requireSignIn()) {
+            return $error;
+        }
+        $filter = mb_strtolower(trim((string) ($input['name'] ?? '')));
+        $patients = [];
+        foreach ($this->magento->patientsFromOrders($this->customerToken, 100) as $order) {
+            $name = trim((string) ($order['patient_name'] ?? ''));
+            $label = OrderPresenter::patientLabel($name);
+            if ($label === null || ($filter !== '' && !str_contains(mb_strtolower($name), $filter))) {
+                continue;
+            }
+            $number = (string) ($order['number'] ?? '');
+            $date = (string) ($order['order_date'] ?? '');
+            $entry = $patients[$label] ?? ['patient' => $label, 'orders' => 0, 'latest_order' => '', 'latest_date' => ''];
+            $entry['orders']++;
+            if ($entry['latest_date'] === '' || strcmp($date, $entry['latest_date']) > 0) {
+                [$entry['latest_order'], $entry['latest_date']] = [$number, $date];
+            }
+            $patients[$label] = $entry;
+            if ($number !== '') {
+                $this->session->rememberOrder($number);
+                $this->session->addSafeValue($number);
+            }
+        }
+        usort($patients, static fn ($a, $b) => strcmp($b['latest_date'], $a['latest_date']));
+
+        return [
+            'patients' => array_slice(array_values($patients), 0, 30),
+            'note' => 'From the latest 100 orders. Patients are shown as first name and last initial.',
+        ];
     }
 
     /** @param array<string, mixed> $input */

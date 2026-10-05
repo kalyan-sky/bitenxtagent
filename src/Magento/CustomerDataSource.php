@@ -29,6 +29,9 @@ interface CustomerDataSource
     /** @return array{total: int, counted: int, by_status: array<string, int>} the customer's own order counts */
     public function orderStats(string $token): array;
 
+    /** @return list<array<string, mixed>> the customer's latest orders with patient names (number, order_date, patient_name) */
+    public function patientsFromOrders(string $token, int $orders): array;
+
     /** @return list<array<string, mixed>> coupons the customer can use (raw Magento shape) */
     public function availableCoupons(string $token): array;
 

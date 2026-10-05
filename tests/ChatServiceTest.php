@@ -483,6 +483,20 @@ final class ChatServiceTest extends TestCase
         self::assertStringContainsString('TypeError', $log);
     }
 
+    public function testPatientListUsesOnlyOwnOrdersAndShortLabels(): void
+    {
+        $claude = new ScriptedClaude([
+            ScriptedClaude::toolCall('list_patients', ['name' => ''], 'toolu_a'),
+            ScriptedClaude::text('Your patients: John S. (1 order, latest 000000101).'),
+        ]);
+        $this->service($claude)->handle('list my patients', 'token-clinic-a', '10.0.0.1');
+
+        $result = self::toolResults($claude)[0];
+        self::assertSame([['patient' => 'John S.', 'orders' => 1, 'latest_order' => '000000101', 'latest_date' => '2026-09-20 10:00:00']], $result['patients']);
+        self::assertStringNotContainsString('Mary', (string) json_encode($result), 'other clinics\' patients never appear');
+        self::assertStringNotContainsString('Michael', (string) json_encode($result));
+    }
+
     public function testNoToolAcceptsAnIdentityChosenByTheModel(): void
     {
         foreach (SupportTools::definitions() as $tool) {
