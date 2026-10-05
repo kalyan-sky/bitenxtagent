@@ -21,7 +21,15 @@ interface CustomerDataSource
     public function findOwnOrder(string $token, string $orderNumber): ?array;
 
     /** @return list<array<string, mixed>> the customer's own orders whose patient name matches */
-    public function findOwnOrdersByPatient(string $token, string $patientName, int $limit): array;
+    public function findOwnOrdersByPatient(string $token, string $patientName, int $limit, string $customerId = ''): array;
+
+    /**
+     * The customer's own patient list (the Pro "Patients" page). $customerId
+     * must be the verified ID of the token's customer, never a chat value.
+     *
+     * @return list<array{id: string, name: string}>
+     */
+    public function ownPatients(string $token, string $customerId): array;
 
     /** @return list<array<string, mixed>> follow-ups on an order (caller must have checked ownership) */
     public function orderFollowUps(string $token, string $orderNumber): array;

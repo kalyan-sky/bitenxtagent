@@ -247,7 +247,7 @@ fallbacks (`fallbacks: "default"`), and the system prompt and tools are prompt-c
 
 ```
 public/index.php            HTTP entry: CORS, auth header, client IP, JSON in/out, no error output
-public/widget.js            Embeddable chat widget (renders text only, no HTML)
+src/Widget/widget.js        Embeddable chat widget, served at /widget.js (renders text only, no HTML)
 public/demo.html            Test page served by the service
 Dockerfile, docker/         Cloud Run image (PHP 8.3 + Apache on $PORT)
 cloudbuild.yaml             Cloud Build pipeline: test, build, push, deploy (docs/DEPLOY-CONSOLE.md)

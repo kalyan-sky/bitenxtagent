@@ -80,7 +80,16 @@ final class FakeMagento implements CustomerDataSource
 
     public ?\Throwable $patientSearchError = null;
 
-    public function findOwnOrdersByPatient(string $token, string $patientName, int $limit): array
+    /** @var array<string, list<array{id: string, name: string}>> keyed by customer ID */
+    public array $patientLists = [];
+
+    public function ownPatients(string $token, string $customerId): array
+    {
+        // Like the real call: only the token owner's own ID is ever passed.
+        return ($this->accounts[$token]['customer']['customer_id'] ?? null) === $customerId ? ($this->patientLists[$customerId] ?? []) : [];
+    }
+
+    public function findOwnOrdersByPatient(string $token, string $patientName, int $limit, string $customerId = ''): array
     {
         if ($this->patientSearchError !== null) {
             throw $this->patientSearchError;

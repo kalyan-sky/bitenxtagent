@@ -274,6 +274,23 @@ final class SupportTools
             return $error;
         }
         $filter = mb_strtolower(trim((string) ($input['name'] ?? '')));
+
+        // The clinic's own patient list (the Pro "Patients" page), when available.
+        $labels = [];
+        foreach ($this->magento->ownPatients($this->customerToken, $this->session->customerId) as $patient) {
+            if ($filter === '' || str_contains(mb_strtolower($patient['name']), $filter)) {
+                $labels[] = OrderPresenter::patientLabel($patient['name']);
+            }
+        }
+        $labels = array_values(array_unique(array_filter($labels)));
+        if ($labels !== []) {
+            return [
+                'patients' => array_map(static fn ($l) => ['patient' => $l], array_slice($labels, 0, 50)),
+                'note' => 'From the clinic\'s patient list. Patients are shown as first name and last initial. '
+                    . 'Use find_orders_by_patient for a patient\'s orders.',
+            ];
+        }
+
         $patients = [];
         foreach ($this->magento->patientsFromOrders($this->customerToken, 100) as $order) {
             $name = trim((string) ($order['patient_name'] ?? ''));
@@ -363,7 +380,7 @@ final class SupportTools
             $this->trust($view);
 
             return $view;
-        }, $this->magento->findOwnOrdersByPatient($this->customerToken, $name, 10));
+        }, $this->magento->findOwnOrdersByPatient($this->customerToken, $name, 10, $this->session->customerId));
 
         return ['orders' => $orders, 'count' => count($orders)];
     }
