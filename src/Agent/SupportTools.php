@@ -212,9 +212,12 @@ final class SupportTools
 
         // getOrderFollowUps takes a bare order number and may not check who is
         // asking, so confirm ownership through the customer-scoped query first.
-        if (!in_array($orderNumber, $this->session->knownOrderNumbers, true)
-            && $this->magento->findOwnOrder($this->customerToken, $orderNumber) === null) {
-            return $this->notFound($orderNumber);
+        if (!in_array($orderNumber, $this->session->knownOrderNumbers, true)) {
+            $order = $this->magento->findOwnOrder($this->customerToken, $orderNumber);
+            if ($order === null) {
+                return $this->notFound($orderNumber);
+            }
+            $orderNumber = (string) ($order['number'] ?? $orderNumber); // e.g. "726" → "000000726"
         }
         $this->session->rememberOrder($orderNumber);
 

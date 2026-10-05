@@ -38,7 +38,7 @@ final class App
         $canary = self::canary($config);
         $onCloud = $config->logTarget === 'stderr';
         $logger = new Logger($onCloud ? 'php://stderr' : $storage . '/logs/chat.jsonl');
-        $magento = new MagentoCustomerDataSource(new GraphQLClient($config->magentoGraphqlUrl, $config->magentoTimeoutSeconds));
+        $magento = new MagentoCustomerDataSource(new GraphQLClient($config->magentoGraphqlUrl, $config->magentoTimeoutSeconds), $logger);
 
         if ($config->storageBackend === 'firestore') {
             $firestore = new FirestoreClient($config->gcpProject, $config->firestoreDatabase, $config->firestoreEmulatorHost);
