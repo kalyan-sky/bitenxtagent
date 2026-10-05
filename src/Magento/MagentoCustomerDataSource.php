@@ -165,13 +165,88 @@ final class MagentoCustomerDataSource implements CustomerDataSource
         return array_values($data['getOrderFollowUps'] ?? []);
     }
 
+    /**
+     * Full-text search first; if that finds nothing, retry with the singular
+     * form ("Aligners" -> "Aligner") and then with a name match, because
+     * Magento's search index often misses plurals and partial names.
+     */
     public function searchProducts(string $token, string $phrase, int $limit): array
     {
-        $query = 'query ($search: String!, $pageSize: Int!) { products(search: $search, pageSize: $pageSize) '
-            . '{ items { name sku stock_status url_key '
-            . 'price_range { minimum_price { final_price { value currency } } } } } }';
-        $data = $this->client->query($query, ['search' => $phrase, 'pageSize' => $limit], $token);
+        $fields = '{ items { name sku stock_status url_key '
+            . 'price_range { minimum_price { final_price { value currency } } } } }';
+        $attempts = [['search', $phrase]];
+        $singular = self::singular($phrase);
+        if ($singular !== $phrase) {
+            $attempts[] = ['search', $singular];
+        }
+        $attempts[] = ['name', $singular];
 
-        return array_values($data['products']['items'] ?? []);
+        foreach ($attempts as [$mode, $words]) {
+            $query = $mode === 'search'
+                ? 'query ($q: String!, $pageSize: Int!) { products(search: $q, pageSize: $pageSize) ' . $fields . ' }'
+                : 'query ($q: String!, $pageSize: Int!) { products(filter: { name: { match: $q } }, pageSize: $pageSize) ' . $fields . ' }';
+            $data = $this->client->query($query, ['q' => $words, 'pageSize' => $limit], $token, true);
+            $items = array_values(array_filter($data['products']['items'] ?? [], 'is_array'));
+            if ($items !== []) {
+                return $items;
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * The catalog's categories (two levels below the root) with a few product
+     * names in each, for "what do you offer?" questions.
+     */
+    public function catalogOverview(string $token, int $productsPerCategory): array
+    {
+        $products = 'products(pageSize: ' . max(1, min(20, $productsPerCategory)) . ') { total_count items { name } }';
+        $query = 'query { categoryList { name children { name include_in_menu ' . $products
+            . ' children { name include_in_menu ' . $products . ' } } } }';
+        $data = $this->client->query($query, [], $token, true);
+
+        $categories = [];
+        $add = static function (array $category, string $parent) use (&$categories): void {
+            $name = trim((string) ($category['name'] ?? ''));
+            $names = array_values(array_filter(array_map(
+                static fn ($p) => is_array($p) ? trim((string) ($p['name'] ?? '')) : '',
+                $category['products']['items'] ?? [],
+            )));
+            if ($name === '' || ($category['include_in_menu'] ?? 1) === 0 || $names === []) {
+                return;
+            }
+            $categories[] = [
+                'category' => $parent !== '' ? $parent . ' / ' . $name : $name,
+                'product_count' => (int) ($category['products']['total_count'] ?? count($names)),
+                'products' => $names,
+            ];
+        };
+        foreach ($data['categoryList'] ?? [] as $root) {
+            foreach (is_array($root) ? ($root['children'] ?? []) : [] as $top) {
+                if (!is_array($top)) {
+                    continue;
+                }
+                $add($top, '');
+                foreach ($top['children'] ?? [] as $child) {
+                    if (is_array($child)) {
+                        $add($child, (string) ($top['name'] ?? ''));
+                    }
+                }
+            }
+        }
+
+        return $categories;
+    }
+
+    private static function singular(string $phrase): string
+    {
+        return (string) preg_replace_callback('/\b(\p{L}{3,}?)(ies|es|s)\b/iu', static function (array $m): string {
+            return match (strtolower($m[2])) {
+                'ies' => $m[1] . 'y',
+                'es' => preg_match('/(s|x|z|ch|sh)$/i', $m[1]) ? $m[1] : $m[1] . 'e',
+                default => str_ends_with(strtolower($m[1]), 's') ? $m[0] : $m[1],
+            };
+        }, trim($phrase));
     }
 }

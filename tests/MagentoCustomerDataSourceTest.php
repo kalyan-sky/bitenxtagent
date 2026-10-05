@@ -132,4 +132,36 @@ final class MagentoCustomerDataSourceTest extends TestCase
         $this->expectException(MagentoException::class);
         $this->source(fn () => ['errors' => [['message' => 'boom']], 'data' => null])->findOwnOrder('tok', '000000101');
     }
+
+    public function testProductSearchRetriesSingularThenNameMatch(): void
+    {
+        $products = $this->source(function (array $request) {
+            if (str_contains($request['query'], 'match') && $request['variables']['q'] === 'Aligner') {
+                return ['data' => ['products' => ['items' => [['name' => 'Clear Aligner Design', 'sku' => 'AL-D']]]]];
+            }
+
+            return ['data' => ['products' => ['items' => []]]];
+        }, $requests)->searchProducts('tok', 'Aligners', 5);
+
+        self::assertSame('Clear Aligner Design', $products[0]['name']);
+        self::assertSame(['Aligners', 'Aligner', 'Aligner'], array_map(fn ($r) => $r['variables']['q'], $requests));
+    }
+
+    public function testCatalogOverviewListsCategoriesWithProducts(): void
+    {
+        $products = fn (array $names) => ['total_count' => count($names), 'items' => array_map(fn ($n) => ['name' => $n], $names)];
+        $overview = $this->source(fn () => ['data' => ['categoryList' => [[
+            'name' => 'Default Category',
+            'children' => [
+                ['name' => 'Crowns', 'include_in_menu' => 1, 'products' => $products(['Zirconia Crown']), 'children' => [
+                    ['name' => 'Anterior', 'include_in_menu' => 1, 'products' => $products(['E.max Crown'])],
+                ]],
+                ['name' => 'Empty', 'include_in_menu' => 1, 'products' => $products([]), 'children' => []],
+                ['name' => 'Hidden', 'include_in_menu' => 0, 'products' => $products(['Internal']), 'children' => []],
+            ],
+        ]]]])->catalogOverview('tok', 8);
+
+        self::assertSame(['Crowns', 'Crowns / Anterior'], array_column($overview, 'category'));
+        self::assertSame(['Zirconia Crown'], $overview[0]['products']);
+    }
 }
