@@ -172,6 +172,10 @@ final class MagentoCustomerDataSource implements CustomerDataSource
 
     public function patientsFromOrders(string $token, int $orders): array
     {
+        $proOrders = $this->proOrderList($token);
+        if ($proOrders !== null && array_filter($proOrders, static fn ($o) => trim((string) ($o['patient_name'] ?? '')) !== '') !== []) {
+            return array_slice($proOrders, 0, $orders);
+        }
         $rows = [];
         foreach ([
             'customerAllOrders' => 'query ($pageSize: Int!) { customerAllOrders(currentPage: 1, pageSize: $pageSize) { items { number order_date patient_name } } }',
@@ -306,6 +310,47 @@ final class MagentoCustomerDataSource implements CustomerDataSource
         return $patients;
     }
 
+    /**
+     * The order list the Pro "My Order" page loads (MyOrderList). It takes no
+     * arguments, so it only returns the token owner's orders, and its
+     * patient_name works where Customer.orders' does not. Rows are mapped to
+     * the shape the rest of the bot uses (number, order_date, status_title).
+     *
+     * @return list<array<string, mixed>>|null null if the query is unavailable
+     */
+    private function proOrderList(string $token): ?array
+    {
+        try {
+            $data = $this->client->query(
+                'query { customerOrders { items { order_number created_at status status_title patient_name } } }',
+                [],
+                $token,
+                true,
+            );
+        } catch (MagentoAuthException $e) {
+            throw $e;
+        } catch (MagentoException $e) {
+            $this->logger?->log('magento_error', ['query' => 'customerOrders', 'detail' => substr($e->getMessage(), 0, 400)]);
+
+            return null;
+        }
+        $rows = [];
+        foreach ($data['customerOrders']['items'] ?? [] as $row) {
+            if (is_array($row) && !empty($row['order_number'])) {
+                $rows[] = [
+                    'number' => (string) $row['order_number'],
+                    'order_date' => (string) ($row['created_at'] ?? ''),
+                    'status' => (string) ($row['status'] ?? ''),
+                    'status_title' => $row['status_title'] ?? null,
+                    'patient_name' => $row['patient_name'] ?? null,
+                ];
+            }
+        }
+        usort($rows, static fn ($a, $b) => strcmp($b['order_date'], $a['order_date'])); // newest first
+
+        return $rows;
+    }
+
     public function findOwnOrdersByPatient(string $token, string $patientName, int $limit): array
     {
         $needle = mb_strtolower(trim($patientName));
@@ -314,7 +359,18 @@ final class MagentoCustomerDataSource implements CustomerDataSource
             static fn (array $o) => str_contains(mb_strtolower(trim((string) ($o['patient_name'] ?? ''))), $needle),
         ));
 
-        // 1. Pro's own order-history search. customerAllOrders takes no
+        // 1. The same order list Pro's "My Order" page shows, matched on any
+        //    part of the patient name in any case.
+        $proOrders = $this->proOrderList($token);
+        if ($proOrders !== null) {
+            $found = $matches($proOrders);
+            $this->logPatientSearch('pro_order_list', $proOrders, count($found));
+            if ($found !== [] || count(array_filter($proOrders, static fn ($o) => trim((string) ($o['patient_name'] ?? '')) !== '')) > 0) {
+                return array_slice($found, 0, $limit); // names are there: an empty result really means no orders
+            }
+        }
+
+        // 2. Pro's order-history search. customerAllOrders takes no
         //    customer ID, so it only ever searches this customer's orders.
         $rows = $this->ordersOrEmpty(
             'query ($name: String!, $pageSize: Int!) { customerAllOrders(currentPage: 1, pageSize: $pageSize, '
