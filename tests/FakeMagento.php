@@ -157,7 +157,7 @@ final class FakeMagento implements CustomerDataSource
             'items' => [['quantity' => 2, 'product' => ['name' => 'Zirconia Crown', 'sku' => 'ZC-1']]],
             'prices' => ['grand_total' => ['value' => 450, 'currency' => 'INR']],
             'applied_coupons' => [['code' => 'FEST10']],
-            'patient' => ['name' => 'John Michael Smith', 'age' => 52, 'gender' => 'M'],
+            'patient' => ['patient_name' => 'John Michael Smith', 'patient_age' => 52, 'patient_gender' => 'Male'],
             'doctor' => ['doctor_name' => 'Dr. Rao'],
             'scan' => ['status' => 'validated', 'files' => [['name' => 'john-smith-upper.stl', 'status' => 'valid'], ['name' => 'lower.stl', 'status' => 'valid']]],
         ];

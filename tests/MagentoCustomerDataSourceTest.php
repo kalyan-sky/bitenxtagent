@@ -194,7 +194,8 @@ final class MagentoCustomerDataSourceTest extends TestCase
             }
             self::assertSame('own-cart', $request['variables']['id']);
 
-            return ['data' => ['getPatientFromCart' => ['name' => 'Asha Verma'], 'getDoctorFromCart' => ['doctor_name' => 'Dr. Rao']]];
+            return ['data' => ['getPatientFromCart' => ['quote_id' => '962', 'patient_id' => 312, 'patient_name' => 'Asha Verma'],
+                'getDoctorFromCart' => ['doctor_name' => 'Dr. Rao']]];
         })->cartSummary('tok');
 
         self::assertSame('Asha V.', OrderPresenter::cart($cart)['patient']);
@@ -236,5 +237,33 @@ final class MagentoCustomerDataSourceTest extends TestCase
         $log = (string) file_get_contents($this->log);
         self::assertStringContainsString('"orders_with_patient_name":0', $log);
         self::assertStringContainsString('customer.orders.items.patient_name', $log);
+    }
+
+    public function testPatientSearchUsesTheOrderListProShows(): void
+    {
+        $orders = $this->source(function (array $request) {
+            if (str_contains($request['query'], 'customerOrders')) {
+                return ['data' => ['customerOrders' => ['items' => [
+                    ['order_number' => '000000654', 'created_at' => '2026-09-16 09:34:22', 'status' => 'processing', 'status_title' => 'Processing', 'patient_name' => 'Kalyan'],
+                    ['order_number' => '000000656', 'created_at' => '2026-09-17 03:13:52', 'status' => 'processing', 'status_title' => 'Processing', 'patient_name' => 'Vinod'],
+                    ['order_number' => '000000728', 'created_at' => '2026-10-05 09:36:27', 'status' => 'processing', 'status_title' => 'Processing', 'patient_name' => 'Kalyan'],
+                ]]]];
+            }
+            self::fail('no other query is needed: ' . $request['query']);
+        }, $requests)->findOwnOrdersByPatient('tok', 'kalyan', 10);
+
+        self::assertSame(['000000728', '000000654'], array_column($orders, 'number'), 'newest first');
+        self::assertSame('Processing', $orders[0]['status_title']);
+        self::assertCount(1, $requests);
+    }
+
+    public function testPatientWithNoOrdersIsAnsweredFromTheProOrderListAlone(): void
+    {
+        $orders = $this->source(fn (array $request) => str_contains($request['query'], 'customerOrders')
+            ? ['data' => ['customerOrders' => ['items' => [['order_number' => '1', 'created_at' => '2026-09-01', 'patient_name' => 'Vinod']]]]]
+            : self::fail('no fallback when names are present'), $requests)->findOwnOrdersByPatient('tok', 'kalyan', 10);
+
+        self::assertSame([], $orders);
+        self::assertCount(1, $requests);
     }
 }
