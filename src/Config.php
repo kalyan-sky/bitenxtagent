@@ -59,6 +59,7 @@ final class Config
         public readonly string $smtpPassword = '',
         public readonly string $smtpEncryption = 'tls',
         public readonly string $smtpFrom = '',
+        public readonly string $smtpAuthType = 'LOGIN',
         /** @var list<string> */
         public readonly array $handoffEmailTo = [],
     ) {
@@ -109,6 +110,8 @@ final class Config
             smtpPassword: $env('SMTP_PASSWORD'),
             smtpEncryption: strtolower($env('SMTP_ENCRYPTION', 'tls')),
             smtpFrom: $env('SMTP_FROM', $env('SMTP_USERNAME')),
+            // LOGIN works with Gmail, Brevo, Zoho, Microsoft 365; PLAIN or CRAM-MD5 if a provider needs it, "auto" to let PHPMailer pick.
+            smtpAuthType: ($a = strtoupper($env('SMTP_AUTH_TYPE', 'LOGIN'))) === 'AUTO' ? '' : $a,
             // Hand-over emails go here; defaults to the support address customers are given.
             handoffEmailTo: array_values(array_filter(array_map('trim', explode(',', $env('HANDOFF_EMAIL_TO', $env('SUPPORT_EMAIL')))))),
             aiMode: in_array($mode = strtolower($env('AI_MODE', 'fallback')), ['primary', 'fallback', 'off'], true) ? $mode : 'fallback',

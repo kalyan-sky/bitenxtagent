@@ -25,6 +25,8 @@ class HandoffMailer
         private readonly string $encryption = 'tls',
         private readonly ?Logger $logger = null,
         private readonly int $timeoutSeconds = 10,
+        /** SMTP login method. PHPMailer otherwise prefers CRAM-MD5, which some providers' keys fail (e.g. Brevo). */
+        private readonly string $authType = 'LOGIN',
     ) {
     }
 
@@ -70,6 +72,7 @@ class HandoffMailer
             $mail->SMTPAuth = $this->username !== '';
             $mail->Username = $this->username;
             $mail->Password = $this->password;
+            $mail->AuthType = $this->authType; // '' lets PHPMailer choose
             $mail->SMTPSecure = match ($this->encryption) {
                 'ssl' => PHPMailer::ENCRYPTION_SMTPS,
                 'none' => '',
