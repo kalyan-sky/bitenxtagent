@@ -520,7 +520,8 @@ final class SupportTools
     private function escalate(array $input): array
     {
         if ($this->session->escalated) {
-            return ['status' => 'already_escalated', 'message' => 'The support team already has this conversation.'];
+            return ['status' => 'already_escalated', 'reply_to' => $this->session->customerEmail,
+                'message' => 'The support team already has this conversation and will reply to the customer\'s registered email.'];
         }
         $orderNumber = trim((string) ($input['order_number'] ?? ''));
 
@@ -547,7 +548,8 @@ final class SupportTools
         }
         $this->session->escalated = true;
 
-        return ['status' => 'escalated', 'message' => 'Tell the customer the support team will follow up by email.'];
+        return ['status' => 'escalated', 'reply_to' => $this->session->customerEmail,
+            'message' => 'Tell the customer the support team will reply to their registered email address (reply_to).'];
     }
 
     /** @return array<string, string>|null */

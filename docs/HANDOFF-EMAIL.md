@@ -3,7 +3,9 @@
 When a customer asks for a person ("talk to support", or the bot decides a request needs the team: cancel,
 change, refund, remake, complaint), the chat emails the support inbox. The email has the customer's name,
 account email and ID, the reason, the order (only if it is confirmed to be theirs), a summary and the last few
-messages of the chat. **Reply-To is the customer**, so the team can just press Reply.
+messages of the chat. **Reply-To is the customer**, so the team can just press Reply; the customer is told in chat that the answer
+will come to their registered email. `HANDOFF_EMAIL_TO` can list several inboxes (comma-separated): one email
+goes to all of them, and a reply from any of them reaches the customer.
 
 If the email can't be sent, the bot does **not** promise a follow-up: it gives the customer the support phone
 number and email instead, and logs `handoff_email_failed` / `handoff_not_delivered` (ERROR) in Cloud Run.
