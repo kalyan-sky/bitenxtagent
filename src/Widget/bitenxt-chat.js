@@ -15,7 +15,7 @@
  *   - element.token = '...'          (set null on logout)
  *   - element.getToken = () => '...' (called whenever a token is needed)
  *
- * Replies are rendered with textContent only, never innerHTML, so a reply
+ * Replies are rendered as text nodes (plus <strong> for **bold**), never innerHTML, so a reply
  * can't inject markup or scripts into the page.
  */
 (function () {
@@ -94,6 +94,22 @@
     Object.keys(attrs || {}).forEach(function (k) { node.setAttribute(k, attrs[k]); });
     if (text !== undefined) node.textContent = text;
     return node;
+  }
+
+  // Shows **bold** as bold. Built from text nodes and <strong> elements only
+  // (never innerHTML), so a reply still can't inject markup.
+  function renderText(node, text) {
+    node.textContent = '';
+    String(text).split(/\*\*([^*\n][^*]*?)\*\*/).forEach(function (part, i) {
+      if (part === '') return;
+      if (i % 2 === 1) {
+        var strong = document.createElement('strong');
+        strong.textContent = part;
+        node.appendChild(strong);
+      } else {
+        node.appendChild(document.createTextNode(part));
+      }
+    });
   }
 
   // Pro may store the token as a plain string, a JSON string or inside a JSON
@@ -271,7 +287,8 @@
       }
       this._lastAt = at;
       var role = who === 'user' ? 'user' : 'bot';
-      var msg = el('div', { 'class': 'msg ' + role, part: 'message message-' + role }, text);
+      var msg = el('div', { 'class': 'msg ' + role, part: 'message message-' + role });
+      if (role === 'bot') renderText(msg, text); else msg.textContent = text;
       this._log.appendChild(msg);
       this._log.scrollTop = this._log.scrollHeight;
       return msg;
@@ -410,7 +427,7 @@
       })
         .then(function (r) { return r.json().then(function (d) { return { status: r.status, data: d }; }); })
         .then(function (res) {
-          pending.textContent = res.data.reply || 'Sorry, something went wrong. Please try again.';
+          renderText(pending, res.data.reply || 'Sorry, something went wrong. Please try again.');
           if (res.status === 401) self._emit('bitenxt-auth-required', {});
           if (res.status === 200) self._addRating(res.data.at);
           if (res.data.quick_replies && res.data.quick_replies.length) self._addChips(res.data.quick_replies);

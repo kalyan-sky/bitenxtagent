@@ -547,7 +547,7 @@ final class ChatServiceTest extends TestCase
         yield 'product search' => ['do you have zirconia crowns?', 'Products matching "zirconia crowns"'];
         yield 'product missing' => ['do you have aligners?', 'I couldn\'t find "aligners" in the catalog'];
         yield 'short product' => ['Crown?', 'Zirconia Crown'];
-        yield 'how-to article' => ['How do I place an order?', "How to place an order\n1. Sign in"];
+        yield 'how-to article' => ['How do I place an order?', "**How to place an order**\n1. Sign in"];
         yield 'kixr article' => ['how do I upload a KIXR scan?', 'KIXR scans'];
     }
 

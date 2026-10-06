@@ -361,7 +361,7 @@ final class FastPath
             return null;
         }
 
-        return self::reply($best['title'] . "\n" . $best['body'], ['Talk to support', 'My recent orders']);
+        return self::reply('**' . $best['title'] . "**\n" . $best['body'], ['Talk to support', 'My recent orders']);
     }
 
     // ---- patients ------------------------------------------------------------

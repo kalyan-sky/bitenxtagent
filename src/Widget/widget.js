@@ -32,7 +32,7 @@
  *
  * The API address defaults to <origin of widget.js>/chat.
  *
- * Replies are rendered with textContent only, never innerHTML, so a reply
+ * Replies are rendered as text nodes (plus <strong> for **bold**), never innerHTML, so a reply
  * can't inject markup or scripts into the page.
  */
 (function () {
@@ -47,6 +47,22 @@
     Object.keys(attrs || {}).forEach(function (k) { node.setAttribute(k, attrs[k]); });
     if (text) node.textContent = text;
     return node;
+  }
+
+  // Shows **bold** as bold. Built from text nodes and <strong> elements only
+  // (never innerHTML), so a reply still can't inject markup.
+  function renderText(node, text) {
+    node.textContent = '';
+    String(text).split(/\*\*([^*\n][^*]*?)\*\*/).forEach(function (part, i) {
+      if (part === '') return;
+      if (i % 2 === 1) {
+        var strong = document.createElement('strong');
+        strong.textContent = part;
+        node.appendChild(strong);
+      } else {
+        node.appendChild(document.createTextNode(part));
+      }
+    });
   }
 
   function init(options) {
@@ -189,7 +205,8 @@
         log.appendChild(el('div', { 'class': 'bnx-time' }, separatorLabel(at)));
       }
       lastAt = at;
-      var msg = el('div', { 'class': 'bnx-msg ' + (who === 'user' ? 'bnx-user' : 'bnx-bot') }, text);
+      var msg = el('div', { 'class': 'bnx-msg ' + (who === 'user' ? 'bnx-user' : 'bnx-bot') });
+      if (who === 'user') msg.textContent = text; else renderText(msg, text);
       log.appendChild(msg);
       log.scrollTop = log.scrollHeight;
       return msg;
@@ -292,7 +309,7 @@
             pending.textContent = res.data.reply || 'Your session has expired. Please log in again.';
             return;
           }
-          pending.textContent = res.data.reply || 'Sorry, something went wrong. Please try again.';
+          renderText(pending, res.data.reply || 'Sorry, something went wrong. Please try again.');
           if (res.status === 200) addRating(res.data.at);
           if (res.data.quick_replies && res.data.quick_replies.length) addChips(res.data.quick_replies);
         })
