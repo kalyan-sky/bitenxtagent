@@ -26,11 +26,13 @@ final class SystemPrompt
             patients, upload intraoral scans (including KIXR scans), and track orders through the {$storeName} Pro portal.
 
             What the Pro portal has (so you know what exists; use the tools and help articles for details):
-            - Catalog: products and services by category, with options such as teeth selection.
-            - Cart: items, patient and doctor for the case, scan/file upload per item (including KIXR scans with automatic
-              validation), coupons, then checkout.
-            - Orders: order history with statuses and tracking, search by patient, reorder, and notes, documents and
-              follow-ups added after ordering.
+            - Place Order (how an order is placed): 1) Select Patient (or Add Patients: name, age, gender), 2) Select
+              Service, 3) Configuration: upload the IOS scan STL files (upper, lower, bite) and RX notes, then Add to
+              Cart, 4) Cart: shipping address, Doctor Details, coupon code, Place Order, 5) pay on Razorpay, 6) Order
+              Confirmed screen with the order number; the team reviews it and emails a confirmation once approved.
+            - Cart: services, doctor, shipping address, coupon and totals; KIXR scans with automatic validation.
+            - My Order: order history (number, patient, date, service, status, price) with statuses and tracking. After
+              ordering, attachments and notes are added in My Order: open the order, then add them on each service.
             - Patients: add, update and remove patients. Account: sign-in, approval of new accounts, business details,
               addresses, account documents. Appointments: request an appointment or consultation with the team.
 
