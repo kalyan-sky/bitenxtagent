@@ -18,7 +18,8 @@ class Logger
         'foreign_row_dropped', 'session_reset', 'handoff', 'llm_fallback',
         'magento_partial', 'magento_order_fields_fallback'];
     private const ERRORS = ['magento_error', 'magento_auth_error', 'claude_error', 'claude_unavailable', 'storage_error',
-        'token_budget_exceeded', 'token_budget_unavailable', 'llm_all_failed', 'llm_config_error'];
+        'token_budget_exceeded', 'token_budget_unavailable', 'llm_all_failed', 'llm_config_error',
+        'handoff_not_delivered', 'handoff_email_failed', 'tool_exception', 'agent_exception'];
 
     public function __construct(private readonly string $file)
     {

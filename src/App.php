@@ -27,6 +27,7 @@ use Bitenxt\SupportAgent\Magento\GraphQLClient;
 use Bitenxt\SupportAgent\Magento\MagentoCustomerDataSource;
 use Bitenxt\SupportAgent\Session\FileSessionStore;
 use Bitenxt\SupportAgent\Session\FirestoreSessionStore;
+use Bitenxt\SupportAgent\Support\HandoffMailer;
 use Bitenxt\SupportAgent\Support\HandoffNotifier;
 use Bitenxt\SupportAgent\Support\Logger;
 
@@ -79,6 +80,7 @@ final class App
                 },
             $config->aiHistoryTurns,
         );
+        $knowledge = new KnowledgeBase(dirname(__DIR__) . '/knowledge');
         return new ChatService(
             sessions: $sessions,
             rateLimiter: $rateLimiter,
@@ -86,12 +88,22 @@ final class App
             outputGuard: new OutputGuard($canary, array_values(array_filter([$config->supportEmail, $config->supportPhone]))),
             agent: $agent,
             magento: $magento,
-            knowledge: new KnowledgeBase(dirname(__DIR__) . '/knowledge'),
-            handoff: new HandoffNotifier($onCloud ? 'php://stderr' : $storage . '/handoffs.jsonl', $config->handoffWebhookUrl),
+            knowledge: $knowledge,
+            handoff: new HandoffNotifier(
+                $onCloud ? 'php://stderr' : $storage . '/handoffs.jsonl',
+                $config->handoffWebhookUrl,
+                new HandoffMailer($config->smtpHost, $config->smtpPort, $config->smtpUsername, $config->smtpPassword,
+                    $config->smtpFrom, $config->handoffEmailTo, $config->smtpEncryption, $logger),
+                $logger,
+            ),
             logger: $logger,
             maxTurnsPerConversation: $config->maxTurnsPerConversation,
             conversationIdleSeconds: $config->conversationIdleSeconds,
-            fastPath: $config->fastPathEnabled ? new FastPath() : null,
+            // In "primary" mode the AI answers how-to questions; otherwise clear ones come straight from the articles.
+            fastPath: $config->fastPathEnabled
+                ? new FastPath($config->aiMode === ChatService::AI_PRIMARY ? null : $knowledge, $config->supportPhone, $config->supportEmail)
+                : null,
+            aiMode: $config->aiMode,
         );
     }
 

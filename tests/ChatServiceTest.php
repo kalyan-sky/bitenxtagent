@@ -24,6 +24,7 @@ final class ChatServiceTest extends TestCase
 {
     private string $dir;
     private FakeMagento $magento;
+    private FakeMailer $mailer;
     private FileSessionStore $sessions;
 
     protected function setUp(): void
@@ -33,6 +34,7 @@ final class ChatServiceTest extends TestCase
         mkdir($this->dir . '/kb', 0700, true);
         file_put_contents($this->dir . '/kb/shipping.md', "# Shipping\n\n## Turnaround times\nCrowns take 5 working days.\n");
         $this->magento = new FakeMagento();
+        $this->mailer = new FakeMailer();
         $this->sessions = new FileSessionStore($this->dir . '/sessions', 3600);
     }
 
@@ -41,13 +43,13 @@ final class ChatServiceTest extends TestCase
         exec('rm -rf ' . escapeshellarg($this->dir));
     }
 
-    private function service(ScriptedClaude $claude, bool $fastPath = false, int $historyTurns = 6): ChatService
+    private function service(ScriptedClaude $claude, bool $fastPath = false, int $historyTurns = 6, string $aiMode = 'fallback', bool $articles = false): ChatService
     {
         return new ChatService(
             sessions: $this->sessions,
             rateLimiter: new FileRateLimiter($this->dir . '/rl', 100, 1000),
             inputGuard: new InputGuard(2000),
-            outputGuard: new OutputGuard('ref-canary', ['support@bitenxt.com']),
+            outputGuard: new OutputGuard('ref-canary', ['support@bitenxt.com', '+91 96422 03377']),
             agent: new SupportAgent(
                 [new AnthropicProvider('claude', 'claude-opus-5-5', [$claude])],
                 'system prompt [ref-canary]',
@@ -57,10 +59,11 @@ final class ChatServiceTest extends TestCase
             ),
             magento: $this->magento,
             knowledge: new KnowledgeBase($this->dir . '/kb'),
-            handoff: new HandoffNotifier($this->dir . '/handoffs.jsonl'),
+            handoff: new HandoffNotifier($this->dir . '/handoffs.jsonl', '', $this->mailer, new Logger($this->dir . '/log.jsonl')),
             logger: new Logger($this->dir . '/log.jsonl'),
             maxTurnsPerConversation: 40,
-            fastPath: $fastPath ? new FastPath() : null,
+            fastPath: $fastPath ? new FastPath($articles ? new KnowledgeBase(dirname(__DIR__) . '/knowledge') : null, '+91 96422 03377') : null,
+            aiMode: $aiMode,
         );
     }
 
@@ -524,6 +527,123 @@ final class ChatServiceTest extends TestCase
         $result = self::toolResults($claude)[0];
         self::assertSame(0, $result['count']);
         self::assertTrue($result['patient_in_patient_list']);
+    }
+
+    /** @return iterable<string, array{string, string}> message => text the instant reply must contain */
+    public static function instantAnswers(): iterable
+    {
+        yield 'greeting' => ['hi', 'Tap a topic'];
+        yield 'thanks' => ['thank you!', "You're welcome"];
+        yield 'support' => ['I want to talk to support', 'passed your request to our support team'];
+        yield 'track without number' => ['track my order', 'Send me the order number'];
+        yield 'patient orders' => ['orders for patient john', "Orders for John S. (newest first):\n• 000000101"];
+        yield 'patient orders 2' => ['what are orders related to john patient?', '000000101'];
+        yield 'latest for patient' => ['latest order for John', 'Order 000000101: In design'];
+        yield 'patient order count' => ['how many orders does John have?', 'John S. has 1 order.'];
+        yield 'patient list' => ['who are my patients?', "Your patients:\n• John S."];
+        yield 'follow-ups' => ['follow ups on order 000000101', 'Please adjust the margin.'];
+        yield 'catalog' => ['what products are available?', 'Crowns & Bridges: Zirconia Crown, E.max Crown'];
+        yield 'product search' => ['do you have zirconia crowns?', 'Products matching "zirconia crowns"'];
+        yield 'product missing' => ['do you have aligners?', 'I couldn\'t find "aligners" in the catalog'];
+        yield 'short product' => ['Crown?', 'Zirconia Crown'];
+        yield 'how-to article' => ['How do I place an order?', "How to place an order\n1. Sign in"];
+        yield 'kixr article' => ['how do I upload a KIXR scan?', 'KIXR scans'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('instantAnswers')]
+    public function testCommonQuestionsAreAnsweredWithoutTheAi(string $message, string $expected): void
+    {
+        $claude = new ScriptedClaude([]);
+        $reply = $this->service($claude, fastPath: true, articles: true)->handle($message, 'token-clinic-a', '10.0.0.1');
+
+        self::assertSame([], $claude->requests, 'no AI call');
+        self::assertStringContainsString($expected, $reply['reply']);
+        self::assertNotEmpty($reply['quick_replies'] ?? [], 'every instant answer offers next steps');
+        self::assertStringNotContainsString('Michael', $reply['reply'], 'patients are only ever shown as First L.');
+    }
+
+    public function testSupportRequestIsHandedOverWithThePhoneNumber(): void
+    {
+        $reply = $this->service(new ScriptedClaude([]), fastPath: true)->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertStringContainsString("If it's urgent, call us on +91 96422 03377.", $reply);
+        $handoff = json_decode(trim((string) file_get_contents($this->dir . '/handoffs.jsonl')), true);
+        self::assertSame('customer_requested', $handoff['reason']);
+    }
+
+    /** @return iterable<array{string}> */
+    public static function questionsForTheAi(): iterable
+    {
+        yield ['cancel order 000000101'];
+        yield ['my crown for John is late, why?'];
+        yield ['what is the turnaround time for crowns?'];
+        yield ['can I change the shade on order 000000101 and add a note?'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('questionsForTheAi')]
+    public function testJudgementCallsStillGoToTheAiInFallbackMode(string $message): void
+    {
+        $claude = new ScriptedClaude([ScriptedClaude::text('Let me help with that.')]);
+        $this->service($claude, fastPath: true, articles: true)->handle($message, 'token-clinic-a', '10.0.0.1');
+
+        self::assertCount(1, $claude->requests);
+    }
+
+    public function testWithTheAiOffUnmatchedQuestionsGetTheMenu(): void
+    {
+        $claude = new ScriptedClaude([]);
+        $reply = $this->service($claude, fastPath: true, aiMode: 'off', articles: true)
+            ->handle('what is the turnaround time for crowns?', 'token-clinic-a', '10.0.0.1');
+
+        self::assertSame([], $claude->requests);
+        self::assertSame(ChatService::MENU_REPLY, $reply['reply']);
+        self::assertSame(FastPath::MENU, $reply['quick_replies']);
+    }
+
+    public function testOtherClinicsPatientsAreNotFound(): void
+    {
+        $claude = new ScriptedClaude([]);
+        $reply = $this->service($claude, fastPath: true)->handle('orders for patient Mary', 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertSame("I couldn't find any orders for a patient named \"Mary\" on your account.", $reply);
+    }
+
+    public function testHandOverEmailsTheSupportInboxWithTheConversation(): void
+    {
+        $claude = new ScriptedClaude([
+            ScriptedClaude::text('Order 000000101 is in design.'),
+            ScriptedClaude::toolCall('escalate_to_human', [
+                'reason' => 'order_change', 'summary' => 'Wants a different shade.', 'order_number' => '000000101', 'urgency' => 'high',
+            ], 'toolu_a'),
+            ScriptedClaude::text('I have passed this to our team.'),
+        ]);
+        $service = $this->service($claude);
+        $service->handle('status of order 000000101?', 'token-clinic-a', '10.0.0.1');
+        $service->handle('Please change the shade on that order', 'token-clinic-a', '10.0.0.1');
+
+        self::assertCount(1, $this->mailer->sent);
+        $mail = $this->mailer->sent[0];
+        self::assertStringStartsWith('[BiteNXT chat] URGENT Order change: ana@clinic-a.test', $mail['subject']);
+        self::assertSame('ana@clinic-a.test', $mail['replyTo'], 'the team can reply to the customer directly');
+        self::assertStringContainsString('Customer: Ana <ana@clinic-a.test>', $mail['body']);
+        self::assertStringContainsString('Summary: Wants a different shade.', $mail['body']);
+        self::assertStringContainsString("Customer: status of order 000000101?\nBot: Order 000000101 is in design.", $mail['body']);
+        self::assertStringContainsString('Customer: Please change the shade on that order', $mail['body']);
+    }
+
+    public function testFailedHandOverIsNotPromisedToTheCustomer(): void
+    {
+        $this->mailer->fail = true;
+        $reply = $this->service(new ScriptedClaude([]), fastPath: true)->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertStringContainsString("Sorry, I couldn't reach the team from chat just now. Please call +91 96422 03377", $reply);
+        self::assertStringNotContainsString('follow up by email', $reply);
+        self::assertStringContainsString('handoff_not_delivered', (string) file_get_contents($this->dir . '/log.jsonl') . $this->handoffLog());
+    }
+
+    private function handoffLog(): string
+    {
+        return (string) @file_get_contents($this->dir . '/handoffs.jsonl');
     }
 
     public function testNoToolAcceptsAnIdentityChosenByTheModel(): void

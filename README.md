@@ -70,6 +70,9 @@ Artifact Registry, Firestore, secret, service accounts, GitHub trigger, environm
 click by click in **[docs/DEPLOY-CONSOLE.md](docs/DEPLOY-CONSOLE.md)**.
 To keep the monthly bill under $10 (Gemini Flash-Lite, free-tier Cloud Run, billing alert), follow
 **[docs/LOW-COST.md](docs/LOW-COST.md)**.
+Hand-over emails to the support inbox: **[docs/HANDOFF-EMAIL.md](docs/HANDOFF-EMAIL.md)**.
+For the Pro frontend team: the chat as a themable web component, `<bitenxt-chat>`, is described in
+**[docs/WEB-COMPONENT.md](docs/WEB-COMPONENT.md)**.
 
 ### Alternative: one command from a terminal
 
@@ -226,7 +229,11 @@ See `.env.example`. Key settings:
 | `TOKEN_LIMIT_GLOBAL_PER_HOUR` / `_PER_DAY` | 200000 / 1000000 | Whole service (1M/day caps Gemini Flash-Lite at about $5 a month) |
 | `PRO_PORTAL_URL` | (empty) | Pro portal link the bot gives customers, e.g. `https://uat-pro.bitenxt.com` |
 | `AI_HISTORY_TURNS` | 6 | Only the last N question/answer pairs are sent to the AI (keeps each call small) |
-| `FAST_PATH` | on | Answer order status and "my orders" from a template, with no AI call. `off` sends everything to the AI |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_ENCRYPTION` / `SMTP_USERNAME` / `SMTP_FROM` | (empty) / 587 / tls | Mailbox that sends hand-over emails (see docs/HANDOFF-EMAIL.md) |
+| `SMTP_PASSWORD` | (secret) | From Secret Manager |
+| `HANDOFF_EMAIL_TO` | `SUPPORT_EMAIL` | Where hand-over emails go (comma-separated) |
+| `AI_MODE` | fallback | `fallback`: orders, patients, follow-ups, coupons, cart, catalog, products, "talk to support", greetings and clear how-to questions are answered instantly from Magento and the help articles; the AI only handles the rest. `primary`: the AI also answers how-to questions. `off`: no AI at all, unmatched questions get a menu of what the bot can do |
+| `FAST_PATH` | on | `off` sends everything to the AI (or, with `AI_MODE=off`, to the menu) |
 | `MAX_MESSAGE_CHARS` | 2000 | |
 | `HISTORY_RETENTION_DAYS` | 90 | How long a customer's chat history is kept after their last message |
 | `CONVERSATION_IDLE_MINUTES` | 30 | Quiet time after which the bot starts a fresh conversation (the thread is kept) |
@@ -247,7 +254,10 @@ fallbacks (`fallbacks: "default"`), and the system prompt and tools are prompt-c
 
 ```
 public/index.php            HTTP entry: CORS, auth header, client IP, JSON in/out, no error output
-src/Widget/widget.js        Embeddable chat widget, served at /widget.js (renders text only, no HTML)
+src/Widget/bitenxt-chat.js  <bitenxt-chat> web component, served at /bitenxt-chat.js (themable; docs/WEB-COMPONENT.md)
+src/Widget/bitenxt-chat.d.ts TypeScript types for the web component
+src/Widget/widget.js        Older one-tag chat widget, served at /widget.js (renders text only, no HTML)
+public/demo-component.html  Test page for the web component (theming, inline mode)
 public/demo.html            Test page served by the service
 Dockerfile, docker/         Cloud Run image (PHP 8.3 + Apache on $PORT)
 cloudbuild.yaml             Cloud Build pipeline: test, build, push, deploy (docs/DEPLOY-CONSOLE.md)

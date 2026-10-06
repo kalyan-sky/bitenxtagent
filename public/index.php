@@ -49,14 +49,16 @@ if ($method === 'OPTIONS') {
 if ($path === '/health') {
     $respond(200, ['ok' => true]);
 }
-if ($path === '/widget.js') {
+// The chat widget (widget.js) and the web component (bitenxt-chat.js). Kept
+// outside public/ and served here so the support phone from SUPPORT_PHONE is
+// filled in; Apache would otherwise serve them raw.
+$scripts = ['/widget.js' => 'widget.js', '/bitenxt-chat.js' => 'bitenxt-chat.js'];
+if (isset($scripts[$path])) {
     header('Content-Type: application/javascript; charset=utf-8');
     header('Cache-Control: public, max-age=300');
-    // The support phone comes from SUPPORT_PHONE, so it changes without editing the widget.
-    $phone = substr((string) json_encode($config->supportPhone, JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG), 1, -1);
     header('Access-Control-Allow-Origin: *');
-    // Kept outside public/ so Apache can't serve it raw, without the phone filled in.
-    echo str_replace('__BNX_SUPPORT_PHONE__', $phone, (string) file_get_contents(dirname(__DIR__) . '/src/Widget/widget.js'));
+    $phone = substr((string) json_encode($config->supportPhone, JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG), 1, -1);
+    echo str_replace('__BNX_SUPPORT_PHONE__', $phone, (string) file_get_contents(dirname(__DIR__) . '/src/Widget/' . $scripts[$path]));
     exit;
 }
 $routes = [
