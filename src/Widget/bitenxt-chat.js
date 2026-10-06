@@ -35,7 +35,7 @@
 
   var CSS = [
     ':host{',
-    '  --bnx-primary:#d9518e; --bnx-primary-contrast:#ffffff; --bnx-primary-soft:#fbe9f1;',
+    '  --bnx-primary:#d65897; --bnx-primary-contrast:#ffffff; --bnx-primary-soft:#fbeaf3;',
     '  --bnx-font:inherit; --bnx-font-size:14px; --bnx-text:#1d2327; --bnx-muted:#6b7680;',
     '  --bnx-bg:#ffffff; --bnx-log-bg:#f7f8fa; --bnx-border:#e4e7eb;',
     '  --bnx-bot-bg:#ffffff; --bnx-bot-text:var(--bnx-text);',

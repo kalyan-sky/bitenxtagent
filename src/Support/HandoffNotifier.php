@@ -149,12 +149,12 @@ class HandoffNotifier
             . '<td style="padding:6px 12px 6px 0;color:#6b7680;width:120px;vertical-align:top;white-space:nowrap">' . $label . '</td>'
             . '<td style="padding:6px 0;color:#1d2327;vertical-align:top">' . $valueHtml . '</td></tr>';
         $section = static fn (string $title, string $inner): string => '<tr><td style="padding:20px 24px 0">'
-            . '<div style="font-size:12px;font-weight:bold;letter-spacing:.6px;text-transform:uppercase;color:#d9518e;'
+            . '<div style="font-size:12px;font-weight:bold;letter-spacing:.6px;text-transform:uppercase;color:#d65897;'
             . 'border-bottom:1px solid #f0d3e1;padding-bottom:6px;margin-bottom:8px">' . $title . '</div>' . $inner . '</td></tr>';
         $table = static fn (string $rows): string => '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:14px">' . $rows . '</table>';
 
         $email = (string) ($handoff['customer_email'] ?? '');
-        $emailHtml = $email !== '' ? '<a href="mailto:' . $e($email) . '" style="color:#d9518e">' . $e($email) . '</a>' : '-';
+        $emailHtml = $email !== '' ? '<a href="mailto:' . $e($email) . '" style="color:#d65897">' . $e($email) . '</a>' : '-';
         $badge = $urgent
             ? '<span style="display:inline-block;background:#c62828;color:#fff;font-weight:bold;font-size:12px;padding:2px 8px;border-radius:10px">URGENT</span>'
             : '<span style="display:inline-block;background:#e8f5e9;color:#2e7d32;font-size:12px;padding:2px 8px;border-radius:10px">Normal</span>';
@@ -163,14 +163,14 @@ class HandoffNotifier
             . '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f4f5f7;padding:24px 0"><tr><td align="center">'
             . '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;background:#ffffff;border:1px solid #e4e7eb;'
             . 'border-radius:8px;font-family:Arial,Helvetica,sans-serif;color:#1d2327">'
-            . '<tr><td style="background:' . ($urgent ? '#c62828' : '#d9518e') . ';color:#ffffff;padding:16px 24px;border-radius:8px 8px 0 0">'
+            . '<tr><td style="background:' . ($urgent ? '#c62828' : '#d65897') . ';color:#ffffff;padding:16px 24px;border-radius:8px 8px 0 0">'
             . '<div style="font-size:18px;font-weight:bold">' . ($urgent ? 'URGENT: ' : '') . 'New support request from chat</div>'
             . '<div style="font-size:13px;opacity:.9;margin-top:4px">' . $e(self::reason($handoff))
             . (($handoff['order_number'] ?? '') !== '' ? ' &middot; Order ' . $e((string) $handoff['order_number']) : '')
             . ' &middot; ' . $e(self::when($handoff['ts'] ?? null)) . '</div></td></tr>';
 
         $request = self::request($handoff);
-        $html .= $section('What the customer needs', '<div style="background:#fdf2f7;border-left:4px solid #d9518e;'
+        $html .= $section('What the customer needs', '<div style="background:#fdf2f7;border-left:4px solid #d65897;'
             . 'padding:10px 14px;font-size:15px;border-radius:4px">'
             . ($request !== '' ? $e($request) : '<span style="color:#6b7680">' . $e(self::NO_REQUEST) . '</span>') . '</div>');
         $html .= $section('Request', $table(
@@ -193,7 +193,7 @@ class HandoffNotifier
                 $time = isset($entry['at']) ? ' <span style="font-weight:normal;color:#9aa3ab">' . $e(self::when($entry['at'], 'h:i A')) . '</span>' : '';
                 $messages .= '<div style="margin:0 0 10px;padding:8px 12px;border-radius:6px;'
                     . ($isCustomer ? 'background:#fdf2f7;border:1px solid #f0d3e1' : 'background:#f7f8fa;border:1px solid #e4e7eb') . '">'
-                    . '<div style="font-size:12px;font-weight:bold;color:' . ($isCustomer ? '#d9518e' : '#6b7680') . ';margin-bottom:4px">'
+                    . '<div style="font-size:12px;font-weight:bold;color:' . ($isCustomer ? '#d65897' : '#6b7680') . ';margin-bottom:4px">'
                     . self::speaker($entry) . $time . '</div>'
                     . '<div style="font-size:14px;line-height:1.45">' . $e(trim((string) ($entry['text'] ?? ''))) . '</div></div>';
             }

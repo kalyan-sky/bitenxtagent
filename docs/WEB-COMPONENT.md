@@ -41,7 +41,7 @@ When the token is missing or rejected it fires `bitenxt-auth-required`.
 
 ```css
 bitenxt-chat {
-  --bnx-primary: #d9518e;               /* buttons, header, your messages */
+  --bnx-primary: #d65897;               /* buttons, header, your messages */
   --bnx-font: "Poppins", sans-serif;     /* inherit Pro's font */
   --bnx-radius: 16px;
 }
@@ -53,9 +53,9 @@ bitenxt-chat::part(message-user) { border-bottom-right-radius: 4px; }
 
 | Property | Default | What it styles |
 |---|---|---|
-| `--bnx-primary` | `#d9518e` | Header, launcher, send button, chips, your messages |
+| `--bnx-primary` | `#d65897` | Header, launcher, send button, chips, your messages |
 | `--bnx-primary-contrast` | `#ffffff` | Text on primary |
-| `--bnx-primary-soft` | `#fbe9f1` | Call bar, chip hover |
+| `--bnx-primary-soft` | `#fbeaf3` | Call bar, chip hover |
 | `--bnx-font` | `inherit` | Font family |
 | `--bnx-font-size` | `14px` | Base text size |
 | `--bnx-text` / `--bnx-muted` | `#1d2327` / `#6b7680` | Text / dates and hints |
