@@ -70,7 +70,8 @@ final class FakeMagento implements CustomerDataSource
     public function findOwnOrder(string $token, string $orderNumber): ?array
     {
         foreach ($this->accounts[$token]['orders'] ?? [] as $order) {
-            if ($order['number'] === $orderNumber) {
+            // Like Magento's lookup: "101" also matches "000000101".
+            if ($order['number'] === $orderNumber || (ctype_digit($orderNumber) && $order['number'] === str_pad($orderNumber, 9, '0', STR_PAD_LEFT))) {
                 return $order;
             }
         }

@@ -534,7 +534,8 @@ final class ChatServiceTest extends TestCase
     {
         yield 'greeting' => ['hi', 'Tap a topic'];
         yield 'thanks' => ['thank you!', "You're welcome"];
-        yield 'support' => ['I want to talk to support', 'passed your request to our support team'];
+        yield 'support' => ['I want to talk to support', 'What do you need help with?'];
+        yield 'support with details' => ['connect me to customer care, my crown is cracked', 'passed your request to our support team'];
         yield 'track without number' => ['track my order', 'Send me the order number'];
         yield 'patient orders' => ['orders for patient john', "Orders for John S. (newest first):\n• 000000101"];
         yield 'patient orders 2' => ['what are orders related to john patient?', '000000101'];
@@ -562,14 +563,63 @@ final class ChatServiceTest extends TestCase
         self::assertStringNotContainsString('Michael', $reply['reply'], 'patients are only ever shown as First L.');
     }
 
-    public function testSupportRequestIsHandedOverWithThePhoneNumber(): void
+    public function testBareSupportRequestAsksWhatItIsAboutThenSendsIt(): void
     {
-        $reply = $this->service(new ScriptedClaude([]), fastPath: true)->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
+        $service = $this->service(new ScriptedClaude([]), fastPath: true);
+        $ask = $service->handle('talk to support', 'token-clinic-a', '10.0.0.1');
 
-        self::assertStringContainsString("They'll reply to your registered email (ana@clinic-a.test).", $reply);
+        self::assertStringContainsString('What do you need help with?', $ask['reply']);
+        self::assertSame(['Just connect me', 'Cancel'], $ask['quick_replies']);
+        self::assertSame([], $this->mailer->sent, 'nothing is sent until we know what it is about');
+
+        $reply = $service->handle('my aligner trays are not fitting', 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertStringContainsString("I've passed your request to our support team. They'll reply to your registered email (ana@clinic-a.test).", $reply);
         self::assertStringContainsString("If it's urgent, call us on +91 96422 03377.", $reply);
+        self::assertCount(1, $this->mailer->sent);
+        self::assertStringContainsString('"my aligner trays are not fitting"', $this->mailer->sent[0]['subject']);
+        self::assertStringContainsString("WHAT THE CUSTOMER NEEDS\n  my aligner trays are not fitting", $this->mailer->sent[0]['body']);
         $handoff = json_decode(trim((string) file_get_contents($this->dir . '/handoffs.jsonl')), true);
         self::assertSame('customer_requested', $handoff['reason']);
+    }
+
+    /** @return iterable<array{string}> */
+    public static function waysToAskForSupport(): iterable
+    {
+        yield ['talk to support'];
+        yield ['Support'];
+        yield ['customer care'];
+        yield ['I need a human'];
+        yield ['can I speak to someone?'];
+        yield ['connect me with your team please'];
+        yield ['please call me back'];
+        yield ['I want to raise a complaint'];
+        yield ['contact support'];
+        yield ['need help'];
+        yield ['email the support team'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('waysToAskForSupport')]
+    public function testEveryWayOfAskingForSupportIsRecognised(string $message): void
+    {
+        $claude = new ScriptedClaude([]);
+        $reply = $this->service($claude, fastPath: true)->handle($message, 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertSame([], $claude->requests, 'no AI call');
+        self::assertStringContainsString("I'll connect you with our support team", $reply);
+    }
+
+    public function testJustConnectMeAndCancel(): void
+    {
+        $service = $this->service(new ScriptedClaude([]), fastPath: true);
+        $service->handle('talk to support', 'token-clinic-a', '10.0.0.1');
+        $cancelled = $service->handle('Cancel', 'token-clinic-a', '10.0.0.1')['reply'];
+        $service->handle('I need a human', 'token-clinic-a', '10.0.0.1');
+        $sent = $service->handle('Just connect me', 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertStringContainsString("I won't contact the team", $cancelled);
+        self::assertStringContainsString("I've passed your request to our support team", $sent);
+        self::assertCount(1, $this->mailer->sent);
     }
 
     /** @return iterable<array{string}> */
@@ -624,7 +674,7 @@ final class ChatServiceTest extends TestCase
 
         self::assertCount(1, $this->mailer->sent);
         $mail = $this->mailer->sent[0];
-        self::assertSame('[BiteNXT Support] URGENT | Order change | Ana (ana@clinic-a.test)', $mail['subject']);
+        self::assertSame('[BiteNXT Support] URGENT | Order change: "Please change the shade on that order" | Ana (ana@clinic-a.test)', $mail['subject']);
         self::assertSame('ana@clinic-a.test', $mail['replyTo'], 'the team can reply to the customer directly');
 
         // Plain-text part: labelled sections.
@@ -632,8 +682,9 @@ final class ChatServiceTest extends TestCase
         self::assertStringContainsString('  Summary     : Wants a different shade.', $mail['body']);
         self::assertStringContainsString("CUSTOMER\n  Name        : Ana\n  Email       : ana@clinic-a.test", $mail['body']);
         self::assertMatchesRegularExpression('/Received    : \d{2} \w{3} \d{4}, \d{2}:\d{2} [AP]M IST/', $mail['body']);
-        self::assertStringContainsString("CUSTOMER'S LATEST MESSAGE\n  Please change the shade on that order", $mail['body']);
-        self::assertMatchesRegularExpression('/\[Customer\][^\n]*\n  status of order 000000101\?\n\n\[Chatbot\][^\n]*\n  Order 000000101 is in design\./', $mail['body']);
+        self::assertStringContainsString("WHAT THE CUSTOMER NEEDS\n  Please change the shade on that order\n\nREQUEST", $mail['body']);
+        self::assertMatchesRegularExpression('/RECENT CONVERSATION \(newest first\)\n-+\n\[Customer\][^\n]*\n  Please change the shade on that order\n\n'
+            . '\[Chatbot\][^\n]*\n  Order 000000101 is in design\.\n\n\[Customer\][^\n]*\n  status of order 000000101\?/', $mail['body']);
 
         // HTML part: the same details, laid out for email clients.
         self::assertStringContainsString('New support request from chat', $mail['html']);
@@ -662,7 +713,7 @@ final class ChatServiceTest extends TestCase
     public function testFailedHandOverIsNotPromisedToTheCustomer(): void
     {
         $this->mailer->fail = true;
-        $reply = $this->service(new ScriptedClaude([]), fastPath: true)->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
+        $reply = $this->service(new ScriptedClaude([]), fastPath: true)->handle('talk to support, my scan upload keeps failing', 'token-clinic-a', '10.0.0.1')['reply'];
 
         self::assertStringContainsString("Sorry, I couldn't reach the team from chat just now. Please call +91 96422 03377", $reply);
         self::assertStringNotContainsString('registered email', $reply, 'no promise when nothing was sent');
@@ -677,18 +728,29 @@ final class ChatServiceTest extends TestCase
     public function testEachDistinctSupportRequestIsEmailedButRepeatsAreNot(): void
     {
         $service = $this->service(new ScriptedClaude([]), fastPath: true);
+        $say = fn (string $text) => $service->handle($text, 'token-clinic-a', '10.0.0.1')['reply'];
 
-        $first = $service->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
-        $repeat = $service->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
-        $aboutOrder = $service->handle('email the support now regarding order number 000000101', 'token-clinic-a', '10.0.0.1')['reply'];
-        $repeatOrder = $service->handle('talk to support about order 000000101', 'token-clinic-a', '10.0.0.1')['reply'];
+        $aboutOrder = $say('email the support now regarding order number 000000101');
+        $say('talk to support');
+        $general = $say('I want to update my clinic address');
+        $say('talk to support');
+        $another = $say('my invoice shows the wrong GST number');
+        $repeat = $say('talk to support, my invoice shows the wrong GST number');
+        $say('talk to support');
+        $bare = $say('Just connect me');
 
-        self::assertStringContainsString("I've passed your request to our support team", $first);
-        self::assertStringContainsString('already has this request', $repeat);
         self::assertStringContainsString("I've passed your request about order 000000101 to our support team", $aboutOrder);
-        self::assertStringContainsString('already has this request', $repeatOrder);
-        self::assertCount(2, $this->mailer->sent);
-        self::assertStringContainsString('| Order 000000101 |', $this->mailer->sent[1]['subject']);
+        self::assertStringContainsString("I've passed your request to our support team", $general, 'a plain request after an order request is not "already requested"');
+        self::assertStringContainsString("I've passed your request to our support team", $another);
+        self::assertStringContainsString("I've passed your request to our support team", $repeat, 'different wording counts as a new request');
+        self::assertStringContainsString("I've passed your request to our support team", $bare);
+        self::assertCount(5, $this->mailer->sent);
+        self::assertStringContainsString('| Order 000000101 |', $this->mailer->sent[0]['subject']);
+        self::assertStringNotContainsString('Order 000000101', $this->mailer->sent[1]['subject'], 'not tied to the earlier order');
+
+        // Sending exactly the same request again is held back.
+        $say('talk to support');
+        self::assertStringContainsString("You've already sent this request", $say('Just connect me'));
     }
 
     public function testSupportAboutSomeoneElsesOrderIsNotSent(): void
@@ -703,28 +765,29 @@ final class ChatServiceTest extends TestCase
     public function testHandOversAreCappedPerConversation(): void
     {
         $claude = new ScriptedClaude(array_merge(...array_map(fn ($i) => [
-            ScriptedClaude::toolCall('escalate_to_human', ['reason' => ['order_change', 'refund_or_billing', 'remake_or_quality', 'delivery_problem'][$i],
-                'summary' => 'Issue ' . $i, 'order_number' => '', 'urgency' => 'normal'], 'toolu_' . $i),
+            ScriptedClaude::toolCall('escalate_to_human', ['reason' => ['order_change', 'refund_or_billing', 'remake_or_quality', 'delivery_problem',
+                'technical_issue', 'other'][$i], 'summary' => 'Issue ' . $i, 'order_number' => '', 'urgency' => 'normal'], 'toolu_' . $i),
             ScriptedClaude::text('Passed on.'),
-        ], range(0, 3))));
+        ], range(0, 5))));
         $service = $this->service($claude);
-        foreach (range(0, 3) as $i) {
+        foreach (range(0, 5) as $i) {
             $service->handle('I have another problem ' . $i, 'token-clinic-a', '10.0.0.1');
         }
 
         self::assertCount(SupportTools::MAX_HANDOFFS_PER_CONVERSATION, $this->mailer->sent);
     }
 
-    public function testTalkToSupportAfterAnOrderIsAboutThatOrder(): void
+    public function testTalkToSupportAfterAnOrderOffersThatOrder(): void
     {
         $service = $this->service(new ScriptedClaude([]), fastPath: true);
-        $service->handle('talk to support', 'token-clinic-a', '10.0.0.1');          // general request
         $service->handle('status of order 000000101', 'token-clinic-a', '10.0.0.1');
-        $reply = $service->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
+        $ask = $service->handle('talk to support', 'token-clinic-a', '10.0.0.1');
+        $reply = $service->handle('About order 101', 'token-clinic-a', '10.0.0.1')['reply'];
 
-        self::assertStringContainsString("I've passed your request about order 000000101", $reply, 'not "already has this request"');
-        self::assertCount(2, $this->mailer->sent);
-        self::assertStringContainsString('| Order 000000101 |', $this->mailer->sent[1]['subject']);
+        self::assertSame(['About order 101', 'Just connect me', 'Cancel'], $ask['quick_replies']);
+        self::assertStringContainsString("I've passed your request about order 000000101", $reply);
+        self::assertCount(1, $this->mailer->sent);
+        self::assertStringContainsString('| Order 000000101 |', $this->mailer->sent[0]['subject']);
     }
 
     public function testOneBadInboxDoesNotStopTheOthers(): void

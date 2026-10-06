@@ -12,6 +12,8 @@ namespace Bitenxt\SupportAgent\Support;
  */
 class HandoffNotifier
 {
+    private const NO_REQUEST = 'Not given: the customer asked to be connected without details. See the conversation below.';
+
     public function __construct(
         private readonly string $file,
         private readonly string $webhookUrl = '',
@@ -66,7 +68,8 @@ class HandoffNotifier
         if (($handoff['urgency'] ?? '') === 'high') {
             $parts[] = 'URGENT';
         }
-        $parts[] = self::reason($handoff);
+        $request = self::request($handoff);
+        $parts[] = self::reason($handoff) . ($request !== '' ? ': "' . (mb_strlen($request) > 60 ? rtrim(mb_substr($request, 0, 57)) . '…' : $request) . '"' : '');
         if (($handoff['order_number'] ?? '') !== '') {
             $parts[] = 'Order ' . $handoff['order_number'];
         }
@@ -94,6 +97,9 @@ class HandoffNotifier
             'NEW SUPPORT REQUEST FROM THE BITENXT CHAT' . (self::urgent($handoff) ? '  ** URGENT **' : ''),
             str_repeat('=', 60),
             '',
+            'WHAT THE CUSTOMER NEEDS',
+            $indent(self::request($handoff) !== '' ? self::request($handoff) : self::NO_REQUEST),
+            '',
             'REQUEST',
             $field('Reason', self::reason($handoff)),
             $field('Urgency', self::urgent($handoff) ? 'URGENT' : 'Normal'),
@@ -107,13 +113,9 @@ class HandoffNotifier
             $field('Customer ID', self::value($handoff, 'customer_id')),
         ];
 
-        $latest = self::latestCustomerMessage($conversation);
-        if ($latest !== '') {
-            array_push($lines, '', "CUSTOMER'S LATEST MESSAGE", $indent($latest));
-        }
         if ($conversation !== []) {
-            array_push($lines, '', 'RECENT CONVERSATION (oldest first)', $rule);
-            foreach ($conversation as $entry) {
+            array_push($lines, '', 'RECENT CONVERSATION (newest first)', $rule);
+            foreach (array_reverse($conversation) as $entry) {
                 $time = isset($entry['at']) ? '  ' . self::when($entry['at'], 'h:i A') : '';
                 array_push($lines, '[' . self::speaker($entry) . ']' . $time, $indent((string) ($entry['text'] ?? '')), '');
             }
@@ -167,6 +169,10 @@ class HandoffNotifier
             . (($handoff['order_number'] ?? '') !== '' ? ' &middot; Order ' . $e((string) $handoff['order_number']) : '')
             . ' &middot; ' . $e(self::when($handoff['ts'] ?? null)) . '</div></td></tr>';
 
+        $request = self::request($handoff);
+        $html .= $section('What the customer needs', '<div style="background:#fdf2f7;border-left:4px solid #d9518e;'
+            . 'padding:10px 14px;font-size:15px;border-radius:4px">'
+            . ($request !== '' ? $e($request) : '<span style="color:#6b7680">' . $e(self::NO_REQUEST) . '</span>') . '</div>');
         $html .= $section('Request', $table(
             $row('Reason', $e(self::reason($handoff)))
             . $row('Urgency', $badge)
@@ -180,15 +186,9 @@ class HandoffNotifier
             . $row('Customer ID', $e(self::value($handoff, 'customer_id'))),
         ));
 
-        $latest = self::latestCustomerMessage($conversation);
-        if ($latest !== '') {
-            $html .= $section("Customer's latest message", '<div style="background:#fdf2f7;border-left:4px solid #d9518e;'
-                . 'padding:10px 14px;font-size:15px;border-radius:4px">' . $e($latest) . '</div>');
-        }
-
         if ($conversation !== []) {
             $messages = '';
-            foreach ($conversation as $entry) {
+            foreach (array_reverse($conversation) as $entry) {
                 $isCustomer = ($entry['role'] ?? '') === 'user';
                 $time = isset($entry['at']) ? ' <span style="font-weight:normal;color:#9aa3ab">' . $e(self::when($entry['at'], 'h:i A')) . '</span>' : '';
                 $messages .= '<div style="margin:0 0 10px;padding:8px 12px;border-radius:6px;'
@@ -197,7 +197,7 @@ class HandoffNotifier
                     . self::speaker($entry) . $time . '</div>'
                     . '<div style="font-size:14px;line-height:1.45">' . $e(trim((string) ($entry['text'] ?? ''))) . '</div></div>';
             }
-            $html .= $section('Recent conversation <span style="text-transform:none;font-weight:normal;color:#9aa3ab">(oldest first)</span>', $messages);
+            $html .= $section('Recent conversation <span style="text-transform:none;font-weight:normal;color:#9aa3ab">(newest first)</span>', $messages);
         }
 
         $html .= '<tr><td style="padding:16px 24px 20px;font-size:12px;color:#6b7680;border-top:1px solid #e4e7eb">'
@@ -235,16 +235,10 @@ class HandoffNotifier
         return ($entry['role'] ?? '') === 'user' ? 'Customer' : 'Chatbot';
     }
 
-    /** @param list<array{role: string, text: string, at?: int}> $conversation */
-    private static function latestCustomerMessage(array $conversation): string
+    /** @param array<string, mixed> $handoff */
+    private static function request(array $handoff): string
     {
-        foreach (array_reverse($conversation) as $entry) {
-            if (($entry['role'] ?? '') === 'user' && trim((string) ($entry['text'] ?? '')) !== '') {
-                return trim((string) $entry['text']);
-            }
-        }
-
-        return '';
+        return trim((string) ($handoff['request'] ?? ''));
     }
 
     /** Support works in India, so times are shown in IST. */

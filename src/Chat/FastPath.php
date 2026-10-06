@@ -52,12 +52,30 @@ final class FastPath
     private const PRODUCT_SEARCH = '/^\s*(do\s+you\s+(have|offer|make|sell|provide)|price\s+(of|for)|cost\s+of|search(\s+for)?|'
         . 'show\s+me|looking\s+for)\s+(an?\s+|any\s+|the\s+)?(?<q>[\p{L}][\p{L}\d \-]{1,48}?)\s*[?.!]*\s*$/iu';
     private const SHORT_PRODUCT = '/^\s*(?<q>[\p{L}][\p{L} \-]{2,30}?)\s*\?\s*$/u';
-    private const SUPPORT = '/^\s*((i\s+)?(want|need|would\s+like)\s+to\s+|can\s+i\s+|please\s+|pls\s+)?'
-        . '(talk|speak|chat|connect)(\s+me)?\s+(to|with)\s+(a\s+|the\s+|your\s+|someone\s+(from\s+)?)?'
-        . '(support|agent|human|person|someone|team|executive|customer\s+care|representative)(\s+team)?\s*[?.!]*\s*$|'
-        . '^\s*(support|customer\s+care|human|agent|talk\s+to\s+support|contact\s+support)\s*[?.!]*\s*$/i';
-    private const SUPPORT_ABOUT_ORDER = '/\b(talk|speak|chat|connect|email|mail|contact|message|tell|inform)\b.{0,40}\b(support|team|agent|human|someone|person)\b'
-        . '.{0,30}?\b(about|regarding|for|on|re)\s+(the\s+|my\s+)?(order\s*(number|no\.?|#)?\s*)?#?(\d{3,12})\b/i';
+    /** "talk to support", "connect me to customer care", "I need a human", "raise a complaint", "call me back"... */
+    private const SUPPORT_INTENT = '/\b(talk|speak|chat|connect|contact|reach|call|email|e-mail|mail|message|write|transfer|escalate|'
+        . 'pass|forward|put\s+me\s+through)\b.{0,40}?\b(support|agent|human|person|someone|somebody|team|executive|'
+        . 'customer\s+(care|service|support)|representative|staff|helpdesk|help\s*desk)\b|'
+        . '\b(need|want|get)\s+(a\s+|to\s+talk\s+to\s+a\s+)?(human|real\s+person|live\s+agent|person)\b|'
+        . '\b(raise|file|log|register|open|create)\s+(a\s+|an\s+)?(ticket|complaint|support\s+request|issue)\b|'
+        . '\b(call\s+me(\s+back)?|callback|call\s+back|escalate)\b|'
+        . '\b(can|could)\s+(someone|somebody|anyone|any\s+one)\s+(from\s+\w+\s+)?(help|call|assist|contact)\b|'
+        . '^\s*(support|customer\s+(care|service|support)|help\s*desk|helpdesk|agent|human|live\s+agent|contact\s+us|'
+        . 'need\s+help|help\s+me|support\s+please|please\s+help)\s*[?.!]*\s*$/i';
+    /** Words that only express "connect me", so a message made only of these has no details yet. */
+    private const SUPPORT_FILLER = ['talk', 'speak', 'chat', 'connect', 'contact', 'reach', 'call', 'email', 'e-mail', 'mail', 'message',
+        'write', 'transfer', 'escalate', 'pass', 'forward', 'put', 'through', 'me', 'to', 'with', 'a', 'an', 'the', 'your', 'you',
+        'someone', 'somebody', 'from', 'support', 'agent', 'human', 'person', 'team', 'executive', 'customer', 'care', 'service',
+        'representative', 'staff', 'real', 'live', 'i', 'want', 'need', 'would', 'like', 'can', 'could', 'please', 'pls', 'plz',
+        'kindly', 'now', 'immediately', 'urgently', 'urgent', 'asap', 'help', 'desk', 'helpdesk', 'raise', 'file', 'log',
+        'register', 'open', 'create', 'ticket', 'complaint', 'request', 'issue', 'back', 'callback', 'get', 'be', 'able', 'let',
+        'us', 'know', 'and', 'in', 'about', 'regarding', 'for', 'on', 're', 'my', 'this', 'that', 'it', 'is', 'am', 'just',
+        'hi', 'hello', 'hey', 'ok', 'okay', 'yes', 'some', 'one', 'of', 'do', 'have', 'there', 'any', 'who', 'directly', 'send', 'go',
+        'how', 'what', 'where', 'when', 'anyone', 'assist', 'guys', 'sir', 'madam', 'team\'s', 'will', 'should', 'does'];
+    /** An order number in a support message: after "order" or "#", or a message that is only the number (amounts and phones are not orders). */
+    private const SUPPORT_ORDER = '/\border\s*(?:number|no\.?|#)?\s*:?\s*#?(\d{3,12})\b|#(\d{3,12})\b|^\s*(\d{3,12})\s*[.!?]*\s*$/i';
+    private const SUPPORT_CANCEL = '/^\s*(cancel|no|nope|no\s+thanks?|never\s*mind|nevermind|not\s+now|forget\s+it|stop)\s*[.!]*\s*$/i';
+    private const JUST_CONNECT = 'Just connect me';
     private const GREETING = '/^\s*(hi+|hello+|hey+|hii+|good\s+(morning|afternoon|evening)|namaste|greetings)(\s+there)?\s*[!.?]*\s*$/i';
     private const THANKS = '/^\s*(thanks?(\s+you)?(\s+so\s+much)?|thank\s+you(\s+so\s+much)?|thx|ty|ok(ay)?|great|cool|got\s+it|perfect|'
         . 'that\'?s\s+all|bye|goodbye)\s*[!.]*\s*$/i';
@@ -78,8 +96,14 @@ final class FastPath
     public function answer(string $text, SupportTools $tools): ?array
     {
         $text = trim((string) preg_replace('/\s+/', ' ', $text));
-        if ($text === '' || mb_strlen($text) > self::MAX_LENGTH) {
+        if ($text === '') {
             return null;
+        }
+        if (mb_strlen($text) > self::MAX_LENGTH) {
+            // A long message right after "what do you need help with?" is the support request itself.
+            $support = $tools->awaitingSupportDetails() ? $this->support($text, $tools) : null;
+
+            return $support === null ? null : $support + ['kind' => 'fast_path'];
         }
 
         $reply = $this->conversation($text, $tools)
@@ -103,49 +127,118 @@ final class FastPath
         if (preg_match(self::THANKS, $text)) {
             return self::reply("You're welcome! Anything else I can help with?", ['My recent orders', 'Talk to support']);
         }
-        $order = '';
-        if (preg_match(self::SUPPORT_ABOUT_ORDER, $text, $m)) {
-            // Confirm the order is theirs first, so the email can name it.
-            $check = self::run($tools, 'get_order_status', ['order_number' => $m[7]]);
-            if (isset($check['error'])) {
-                return self::errorReply($check['error'], $m[7]);
-            }
-            $order = (string) ($check['order']['order_number'] ?? '');
-        }
-        if ($order !== '' || preg_match(self::SUPPORT, $text)) {
-            $result = self::run($tools, 'escalate_to_human', [
-                'reason' => 'customer_requested',
-                'summary' => 'The customer asked in chat to talk to the support team' . ($order !== '' ? " about order {$order}." : '.'),
-                'order_number' => $order,
-                'urgency' => 'normal',
-            ]);
-            $status = $result['status'] ?? '';
-            $order = $order !== '' ? $order : (string) ($result['order_number'] ?? '');
-            if ($status === 'escalated' || $status === 'already_escalated') {
-                $to = ($result['reply_to'] ?? '') !== '' ? " ({$result['reply_to']})" : '';
-                $lines = [$status === 'already_escalated'
-                    ? "Our support team already has this request. They'll reply to your registered email{$to}."
-                    : "I've passed your request" . ($order !== '' ? " about order {$order}" : '') . " to our support team. They'll reply to your registered email{$to}."];
-                if ($this->supportPhone !== '') {
-                    $lines[] = "If it's urgent, call us on {$this->supportPhone}.";
-                }
-            } else {
-                // The request could not be sent: give the direct contacts instead of a promise.
-                $contacts = array_filter([
-                    $this->supportPhone !== '' ? "call {$this->supportPhone}" : '',
-                    $this->supportEmail !== '' ? "email {$this->supportEmail}" : '',
-                ]);
-                $lines = ["Sorry, I couldn't reach the team from chat just now."
-                    . ($contacts !== [] ? ' Please ' . implode(' or ', $contacts) . ' and they will help you.' : ' Please try again shortly.')];
-            }
-
-            return self::reply(implode("\n", $lines), ['My recent orders']);
+        $support = $this->support($text, $tools);
+        if ($support !== null) {
+            return $support;
         }
         if (preg_match(self::TRACK_NO_NUMBER, $text)) {
             return self::reply('Sure! Send me the order number (for example 671), or pick one from your recent orders.', ['My recent orders']);
         }
 
         return null;
+    }
+
+    /**
+     * "Talk to support" and every other way of asking for a person. A request
+     * with details is sent straight away; a bare one first asks what it is
+     * about, so the team gets the customer's actual request.
+     */
+    private function support(string $text, SupportTools $tools): ?array
+    {
+        if ($tools->awaitingSupportDetails()) {
+            $tools->setAwaitingSupportDetails(false);
+            if (preg_match(self::SUPPORT_CANCEL, $text)) {
+                return self::reply('No problem, I won\'t contact the team. Anything else I can help with?', self::MENU);
+            }
+            if (!in_array($text, self::MENU, true) || $text === 'Talk to support') {
+                // Whatever they type now is the request ("Just connect me" sends it without details).
+                return $this->sendToSupport($text, self::hasSupportDetails($text, 1) ? $text : '', $tools);
+            }
+            // They tapped another topic instead: answer that.
+            return null;
+        }
+        if (!preg_match(self::SUPPORT_INTENT, $text)) {
+            return null;
+        }
+        if (self::hasSupportDetails($text, 1)) {
+            return $this->sendToSupport($text, $text, $tools);
+        }
+
+        $tools->setAwaitingSupportDetails(true);
+        $order = $tools->lastOrder();
+        $short = ltrim($order, '0');
+
+        return self::reply(
+            "Sure, I'll connect you with our support team. What do you need help with?\n"
+            . 'Tell me in a sentence (for example "change the shade on order ' . ($short !== '' ? $short : '729') . '") and I\'ll send it to them.',
+            [$order !== '' ? "About order {$short}" : '', self::JUST_CONNECT, 'Cancel'],
+        );
+    }
+
+    /** @return array{text: string, quick_replies: list<string>}|null */
+    private function sendToSupport(string $text, string $request, SupportTools $tools): ?array
+    {
+        $order = '';
+        if (preg_match(self::SUPPORT_ORDER, $text, $m)) {
+            $number = implode('', array_slice($m, 1)); // whichever group matched
+            // Confirm the order is theirs first, so the email can name it.
+            $check = self::run($tools, 'get_order_status', ['order_number' => $number]);
+            if (isset($check['error'])) {
+                return self::errorReply($check['error'], $number);
+            }
+            $order = (string) ($check['order']['order_number'] ?? '');
+        }
+        if ($request === '' && $order !== '') {
+            $request = "Help with order {$order}";
+        }
+
+        $result = self::run($tools, 'escalate_to_human', [
+            'reason' => 'customer_requested',
+            'summary' => 'The customer asked in chat to talk to the support team'
+                . ($order !== '' ? " about order {$order}" : '') . ($request !== '' ? ': "' . mb_substr($request, 0, 300) . '"' : '.'),
+            'order_number' => $order,
+            'urgency' => preg_match('/\b(urgent|urgently|asap|immediately|emergency)\b/i', $text) ? 'high' : 'normal',
+            'request' => $request,
+        ]);
+        $status = $result['status'] ?? '';
+        $to = ($result['reply_to'] ?? '') !== '' ? " ({$result['reply_to']})" : '';
+        $about = $order !== '' ? " about order {$order}" : '';
+        $lines = match ($status) {
+            'escalated' => ["I've passed your request{$about} to our support team. They'll reply to your registered email{$to}."],
+            'already_escalated' => ["You've already sent this request{$about}, and our support team has it. They'll reply to your registered email{$to}."],
+            'limit_reached' => ["Our support team already has your requests from this chat and will reply to your registered email{$to}."],
+            default => null,
+        };
+        if ($lines === null) {
+            // The request could not be sent: give the direct contacts instead of a promise.
+            $contacts = array_filter([
+                $this->supportPhone !== '' ? "call {$this->supportPhone}" : '',
+                $this->supportEmail !== '' ? "email {$this->supportEmail}" : '',
+            ]);
+
+            return self::reply("Sorry, I couldn't reach the team from chat just now."
+                . ($contacts !== [] ? ' Please ' . implode(' or ', $contacts) . ' and they will help you.' : ' Please try again shortly.'), ['My recent orders']);
+        }
+        if ($this->supportPhone !== '') {
+            $lines[] = "If it's urgent, call us on {$this->supportPhone}.";
+        }
+
+        return self::reply(implode("\n", $lines), ['My recent orders']);
+    }
+
+    /** Whether a support message says what it is about (an order number, or a few words beyond "connect me"). */
+    private static function hasSupportDetails(string $text, int $minWords = 1): bool
+    {
+        if ($text === self::JUST_CONNECT) {
+            return false;
+        }
+        if (preg_match(self::SUPPORT_ORDER, $text)) {
+            return true;
+        }
+        $words = preg_split('/[^\p{L}\p{N}\'-]+/u', mb_strtolower($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $left = array_diff($words, self::SUPPORT_FILLER);
+
+        return count($left) >= $minWords;
     }
 
     /** Account lookups: orders, patients, follow-ups, coupons, cart, catalog and products. */

@@ -46,6 +46,8 @@ final class ChatSession
         public array $handoffKeys = [],
         /** the single order last looked at in this conversation (confirmed to be the customer's) */
         public string $lastOrder = '',
+        /** when the bot last asked "what do you need help with?" before contacting support (0 = not waiting) */
+        public int $supportAskedAt = 0,
     ) {
     }
 
@@ -158,6 +160,7 @@ final class ChatSession
             provider: (string) ($data['provider'] ?? (($data['messages'] ?? []) !== [] ? 'claude' : '')),
             handoffKeys: array_values(array_map('strval', $data['handoffKeys'] ?? [])),
             lastOrder: (string) ($data['lastOrder'] ?? ''),
+            supportAskedAt: (int) ($data['supportAskedAt'] ?? 0),
         );
     }
 

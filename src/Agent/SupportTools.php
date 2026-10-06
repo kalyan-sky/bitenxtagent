@@ -24,7 +24,9 @@ final class SupportTools
 {
     public const MAX_FAILED_ORDER_LOOKUPS = 5;
     /** Hand-over emails per conversation, so a customer (or a looping AI) can't flood the inbox. */
-    public const MAX_HANDOFFS_PER_CONVERSATION = 3;
+    public const MAX_HANDOFFS_PER_CONVERSATION = 5;
+    /** How long the bot waits for the customer to describe their support request. */
+    private const SUPPORT_DETAILS_SECONDS = 900;
 
     /** The message being answered (not yet in the transcript), for hand-over emails. */
     public string $currentMessage = '';
@@ -38,6 +40,23 @@ final class SupportTools
         private readonly HandoffNotifier $handoff,
         private readonly Logger $logger,
     ) {
+    }
+
+    /** Whether the bot just asked the customer what their support request is about. */
+    public function awaitingSupportDetails(): bool
+    {
+        return $this->session->supportAskedAt > time() - self::SUPPORT_DETAILS_SECONDS;
+    }
+
+    public function setAwaitingSupportDetails(bool $waiting): void
+    {
+        $this->session->supportAskedAt = $waiting ? time() : 0;
+    }
+
+    /** The order last discussed, if it is confirmed to be this customer's; otherwise "". */
+    public function lastOrder(): string
+    {
+        return in_array($this->session->lastOrder, $this->session->knownOrderNumbers, true) ? $this->session->lastOrder : '';
     }
 
     /** @return list<array<string, mixed>> tool definitions for the Messages API */
@@ -533,18 +552,22 @@ final class SupportTools
         // Only pass on an order number we have confirmed belongs to this customer.
         $orderNumber = in_array($orderNumber, $this->session->knownOrderNumbers, true) ? $orderNumber : '';
         $reason = (string) ($input['reason'] ?? 'other');
-        if ($orderNumber === '' && $reason === 'customer_requested'
-            && in_array($this->session->lastOrder, $this->session->knownOrderNumbers, true)) {
-            // "talk to support" right after discussing an order is about that order.
-            $orderNumber = $this->session->lastOrder;
-        }
+        // What the customer asked for, in their own words: given by the chat's
+        // "what do you need help with?" step, otherwise the message being answered.
+        $request = trim((string) ($input['request'] ?? $this->currentMessage));
+        $request = mb_substr((string) preg_replace('/\s+/u', ' ', $request), 0, 600);
 
-        // A new request (different reason or order) gets its own email; a repeat doesn't.
-        $key = $reason . '|' . $orderNumber;
-        if (in_array($key, $this->session->handoffKeys, true)
-            || count($this->session->handoffKeys) >= self::MAX_HANDOFFS_PER_CONVERSATION) {
+        // Each different request gets its own email; only an identical repeat
+        // (same reason, order and wording) is held back.
+        $key = $reason . '|' . $orderNumber . '|' . md5(mb_strtolower($request));
+        if (in_array($key, $this->session->handoffKeys, true)) {
             return ['status' => 'already_escalated', 'reply_to' => $this->session->customerEmail,
                 'message' => 'The support team already has this request and will reply to the customer\'s registered email.'];
+        }
+        if (count($this->session->handoffKeys) >= self::MAX_HANDOFFS_PER_CONVERSATION) {
+            return ['status' => 'limit_reached', 'reply_to' => $this->session->customerEmail,
+                'message' => 'Several requests were already sent from this conversation. Tell the customer the team has them and will '
+                    . 'reply by email, and give the support phone number for anything urgent.'];
         }
 
         $conversation = array_slice($this->session->transcript, -10);
@@ -561,6 +584,7 @@ final class SupportTools
             'urgency' => ($input['urgency'] ?? '') === 'high' ? 'high' : 'normal',
             'order_number' => $orderNumber,
             'summary' => mb_substr((string) ($input['summary'] ?? ''), 0, 600),
+            'request' => $request,
         ]);
         if (!$sent) {
             // Don't promise an email that nobody will receive.
