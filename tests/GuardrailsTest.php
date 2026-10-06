@@ -113,4 +113,10 @@ final class GuardrailsTest extends TestCase
         self::assertStringNotContainsString('designer', $json);
         self::assertStringNotContainsString('Michael', $json);
     }
+
+    public function testPastedSmtpPasswordsAreCleanedUp(): void
+    {
+        self::assertSame('abcdefghijklmnop', \Bitenxt\SupportAgent\Support\HandoffMailer::cleanPassword('smtp.gmail.com', "abcd efgh ijkl mnop\n"));
+        self::assertSame('pass with space', \Bitenxt\SupportAgent\Support\HandoffMailer::cleanPassword('smtp.zoho.in', "pass with space\n"));
+    }
 }
