@@ -42,6 +42,8 @@ final class ChatSession
         public string $title = '',
         /** which AI provider's format $messages is in (e.g. "gemini"); empty = none yet */
         public string $provider = '',
+        /** @var list<string> hand-overs already sent in this conversation ("reason|order") */
+        public array $handoffKeys = [],
     ) {
     }
 
@@ -152,6 +154,7 @@ final class ChatSession
             title: (string) ($data['title'] ?? ''),
             // Conversations saved before multi-provider support are Claude-format.
             provider: (string) ($data['provider'] ?? (($data['messages'] ?? []) !== [] ? 'claude' : '')),
+            handoffKeys: array_values(array_map('strval', $data['handoffKeys'] ?? [])),
         );
     }
 
