@@ -42,7 +42,12 @@ class HandoffNotifier
 
         $delivered = false;
         if ($this->mailer?->isConfigured()) {
-            $delivered = $this->mailer->send(self::subject($handoff), self::body($handoff, $conversation), (string) ($handoff['customer_email'] ?? ''));
+            $delivered = $this->mailer->send(
+                self::subject($handoff),
+                self::body($handoff, $conversation),
+                (string) ($handoff['customer_email'] ?? ''),
+                self::html($handoff, $conversation),
+            );
         }
         if ($this->webhookUrl !== '') {
             $delivered = $this->postWebhook(self::body($handoff, [])) || $delivered;
@@ -55,46 +60,203 @@ class HandoffNotifier
     }
 
     /** @param array<string, mixed> $handoff */
-    private static function subject(array $handoff): string
+    public static function subject(array $handoff): string
     {
-        return sprintf(
-            '[BiteNXT chat]%s %s: %s%s',
-            ($handoff['urgency'] ?? '') === 'high' ? ' URGENT' : '',
-            str_replace('_', ' ', ucfirst((string) ($handoff['reason'] ?? 'other'))),
-            $handoff['customer_email'] ?? 'unknown customer',
-            !empty($handoff['order_number']) ? ' (order ' . $handoff['order_number'] . ')' : '',
-        );
+        $parts = [];
+        if (($handoff['urgency'] ?? '') === 'high') {
+            $parts[] = 'URGENT';
+        }
+        $parts[] = self::reason($handoff);
+        if (($handoff['order_number'] ?? '') !== '') {
+            $parts[] = 'Order ' . $handoff['order_number'];
+        }
+        $name = trim((string) ($handoff['customer_name'] ?? ''));
+        $email = (string) ($handoff['customer_email'] ?? '');
+        $parts[] = $name !== '' ? ($email !== '' ? "{$name} ({$email})" : $name) : ($email !== '' ? $email : 'unknown customer');
+
+        return '[BiteNXT Support] ' . implode(' | ', $parts);
     }
 
     /**
+     * Plain-text version: the email's text part and the webhook message.
+     *
      * @param array<string, mixed> $handoff
      * @param list<array{role: string, text: string, at?: int}> $conversation
      */
-    private static function body(array $handoff, array $conversation): string
+    public static function body(array $handoff, array $conversation): string
     {
+        $field = static fn (string $label, string $value): string => '  ' . str_pad($label, 12) . ': '
+            . str_replace("\n", "\n" . str_repeat(' ', 16), $value);
+        $indent = static fn (string $text): string => '  ' . str_replace("\n", "\n  ", trim($text));
+        $rule = str_repeat('-', 60);
+
         $lines = [
-            'A customer asked the BiteNXT support chat for help from the team.',
+            'NEW SUPPORT REQUEST FROM THE BITENXT CHAT' . (self::urgent($handoff) ? '  ** URGENT **' : ''),
+            str_repeat('=', 60),
             '',
-            'Customer: ' . trim(($handoff['customer_name'] ?? '') . ' <' . ($handoff['customer_email'] ?? 'unknown') . '>'),
-            'Customer ID: ' . ($handoff['customer_id'] ?? '-'),
-            'Reason: ' . str_replace('_', ' ', (string) ($handoff['reason'] ?? 'other')),
-            'Urgency: ' . ($handoff['urgency'] ?? 'normal'),
-            'Order: ' . (($handoff['order_number'] ?? '') !== '' ? $handoff['order_number'] : '-'),
-            'Summary: ' . ($handoff['summary'] ?? ''),
-            'Chat session: ' . ($handoff['session_id'] ?? '') . ' (' . ($handoff['ts'] ?? '') . ')',
+            'REQUEST',
+            $field('Reason', self::reason($handoff)),
+            $field('Urgency', self::urgent($handoff) ? 'URGENT' : 'Normal'),
+            $field('Order', self::value($handoff, 'order_number')),
+            $field('Summary', self::value($handoff, 'summary')),
+            $field('Received', self::when($handoff['ts'] ?? null)),
+            '',
+            'CUSTOMER',
+            $field('Name', self::value($handoff, 'customer_name')),
+            $field('Email', self::value($handoff, 'customer_email')),
+            $field('Customer ID', self::value($handoff, 'customer_id')),
         ];
-        if ($conversation !== []) {
-            $lines[] = '';
-            $lines[] = 'Recent conversation:';
-            foreach ($conversation as $entry) {
-                $who = ($entry['role'] ?? '') === 'user' ? 'Customer' : 'Bot';
-                $lines[] = "{$who}: " . str_replace("\n", "\n    ", (string) ($entry['text'] ?? ''));
-            }
+
+        $latest = self::latestCustomerMessage($conversation);
+        if ($latest !== '') {
+            array_push($lines, '', "CUSTOMER'S LATEST MESSAGE", $indent($latest));
         }
-        $lines[] = '';
-        $lines[] = 'Reply to this email to answer the customer directly.';
+        if ($conversation !== []) {
+            array_push($lines, '', 'RECENT CONVERSATION (oldest first)', $rule);
+            foreach ($conversation as $entry) {
+                $time = isset($entry['at']) ? '  ' . self::when($entry['at'], 'h:i A') : '';
+                array_push($lines, '[' . self::speaker($entry) . ']' . $time, $indent((string) ($entry['text'] ?? '')), '');
+            }
+            array_pop($lines);
+        }
+
+        $email = (string) ($handoff['customer_email'] ?? '');
+        array_push(
+            $lines,
+            '',
+            $rule,
+            $email !== '' ? "Reply to this email to answer the customer directly (it goes to {$email})." : 'Reply to the customer from your support inbox.',
+            'Chat session: ' . self::value($handoff, 'session_id'),
+        );
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * HTML version for email clients: inline styles and tables only, every
+     * value escaped (chat text is customer-written).
+     *
+     * @param array<string, mixed> $handoff
+     * @param list<array{role: string, text: string, at?: int}> $conversation
+     */
+    public static function html(array $handoff, array $conversation): string
+    {
+        $e = static fn (string $text): string => nl2br(htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), false);
+        $urgent = self::urgent($handoff);
+        $row = static fn (string $label, string $valueHtml): string => '<tr>'
+            . '<td style="padding:6px 12px 6px 0;color:#6b7680;width:120px;vertical-align:top;white-space:nowrap">' . $label . '</td>'
+            . '<td style="padding:6px 0;color:#1d2327;vertical-align:top">' . $valueHtml . '</td></tr>';
+        $section = static fn (string $title, string $inner): string => '<tr><td style="padding:20px 24px 0">'
+            . '<div style="font-size:12px;font-weight:bold;letter-spacing:.6px;text-transform:uppercase;color:#d9518e;'
+            . 'border-bottom:1px solid #f0d3e1;padding-bottom:6px;margin-bottom:8px">' . $title . '</div>' . $inner . '</td></tr>';
+        $table = static fn (string $rows): string => '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:14px">' . $rows . '</table>';
+
+        $email = (string) ($handoff['customer_email'] ?? '');
+        $emailHtml = $email !== '' ? '<a href="mailto:' . $e($email) . '" style="color:#d9518e">' . $e($email) . '</a>' : '-';
+        $badge = $urgent
+            ? '<span style="display:inline-block;background:#c62828;color:#fff;font-weight:bold;font-size:12px;padding:2px 8px;border-radius:10px">URGENT</span>'
+            : '<span style="display:inline-block;background:#e8f5e9;color:#2e7d32;font-size:12px;padding:2px 8px;border-radius:10px">Normal</span>';
+
+        $html = '<!doctype html><html><body style="margin:0;padding:0;background:#f4f5f7">'
+            . '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f4f5f7;padding:24px 0"><tr><td align="center">'
+            . '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;background:#ffffff;border:1px solid #e4e7eb;'
+            . 'border-radius:8px;font-family:Arial,Helvetica,sans-serif;color:#1d2327">'
+            . '<tr><td style="background:' . ($urgent ? '#c62828' : '#d9518e') . ';color:#ffffff;padding:16px 24px;border-radius:8px 8px 0 0">'
+            . '<div style="font-size:18px;font-weight:bold">' . ($urgent ? 'URGENT: ' : '') . 'New support request from chat</div>'
+            . '<div style="font-size:13px;opacity:.9;margin-top:4px">' . $e(self::reason($handoff))
+            . (($handoff['order_number'] ?? '') !== '' ? ' &middot; Order ' . $e((string) $handoff['order_number']) : '')
+            . ' &middot; ' . $e(self::when($handoff['ts'] ?? null)) . '</div></td></tr>';
+
+        $html .= $section('Request', $table(
+            $row('Reason', $e(self::reason($handoff)))
+            . $row('Urgency', $badge)
+            . $row('Order', '<strong>' . $e(self::value($handoff, 'order_number')) . '</strong>')
+            . $row('Summary', $e(self::value($handoff, 'summary')))
+            . $row('Received', $e(self::when($handoff['ts'] ?? null))),
+        ));
+        $html .= $section('Customer', $table(
+            $row('Name', $e(self::value($handoff, 'customer_name')))
+            . $row('Email', $emailHtml)
+            . $row('Customer ID', $e(self::value($handoff, 'customer_id'))),
+        ));
+
+        $latest = self::latestCustomerMessage($conversation);
+        if ($latest !== '') {
+            $html .= $section("Customer's latest message", '<div style="background:#fdf2f7;border-left:4px solid #d9518e;'
+                . 'padding:10px 14px;font-size:15px;border-radius:4px">' . $e($latest) . '</div>');
+        }
+
+        if ($conversation !== []) {
+            $messages = '';
+            foreach ($conversation as $entry) {
+                $isCustomer = ($entry['role'] ?? '') === 'user';
+                $time = isset($entry['at']) ? ' <span style="font-weight:normal;color:#9aa3ab">' . $e(self::when($entry['at'], 'h:i A')) . '</span>' : '';
+                $messages .= '<div style="margin:0 0 10px;padding:8px 12px;border-radius:6px;'
+                    . ($isCustomer ? 'background:#fdf2f7;border:1px solid #f0d3e1' : 'background:#f7f8fa;border:1px solid #e4e7eb') . '">'
+                    . '<div style="font-size:12px;font-weight:bold;color:' . ($isCustomer ? '#d9518e' : '#6b7680') . ';margin-bottom:4px">'
+                    . self::speaker($entry) . $time . '</div>'
+                    . '<div style="font-size:14px;line-height:1.45">' . $e(trim((string) ($entry['text'] ?? ''))) . '</div></div>';
+            }
+            $html .= $section('Recent conversation <span style="text-transform:none;font-weight:normal;color:#9aa3ab">(oldest first)</span>', $messages);
+        }
+
+        $html .= '<tr><td style="padding:16px 24px 20px;font-size:12px;color:#6b7680;border-top:1px solid #e4e7eb">'
+            . ($email !== '' ? '<strong style="color:#1d2327">Reply to this email</strong> to answer the customer directly (it goes to ' . $e($email) . ').'
+                : 'Reply to the customer from your support inbox.')
+            . '<br>Chat session: ' . $e(self::value($handoff, 'session_id')) . '</td></tr>'
+            . '</table></td></tr></table></body></html>';
+
+        return $html;
+    }
+
+    /** @param array<string, mixed> $handoff */
+    private static function reason(array $handoff): string
+    {
+        return ucfirst(str_replace('_', ' ', (string) ($handoff['reason'] ?? 'other')));
+    }
+
+    /** @param array<string, mixed> $handoff */
+    private static function urgent(array $handoff): bool
+    {
+        return ($handoff['urgency'] ?? '') === 'high';
+    }
+
+    /** @param array<string, mixed> $handoff */
+    private static function value(array $handoff, string $key): string
+    {
+        $value = trim((string) ($handoff[$key] ?? ''));
+
+        return $value !== '' ? $value : '-';
+    }
+
+    /** @param array{role?: string} $entry */
+    private static function speaker(array $entry): string
+    {
+        return ($entry['role'] ?? '') === 'user' ? 'Customer' : 'Chatbot';
+    }
+
+    /** @param list<array{role: string, text: string, at?: int}> $conversation */
+    private static function latestCustomerMessage(array $conversation): string
+    {
+        foreach (array_reverse($conversation) as $entry) {
+            if (($entry['role'] ?? '') === 'user' && trim((string) ($entry['text'] ?? '')) !== '') {
+                return trim((string) $entry['text']);
+            }
+        }
+
+        return '';
+    }
+
+    /** Support works in India, so times are shown in IST. */
+    private static function when(int|string|null $time, string $format = 'd M Y, h:i A'): string
+    {
+        try {
+            $date = is_int($time) ? (new \DateTimeImmutable('@' . $time)) : new \DateTimeImmutable((string) ($time ?? 'now'));
+        } catch (\Exception) {
+            return (string) $time;
+        }
+
+        return $date->setTimezone(new \DateTimeZone('Asia/Kolkata'))->format($format) . ' IST';
     }
 
     private function postWebhook(string $text): bool

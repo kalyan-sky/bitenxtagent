@@ -39,16 +39,18 @@ class HandoffMailer
      * Sends one copy to each inbox, so one bad address (a typo, a full or
      * closed mailbox) can't stop the others from getting it.
      *
+     * @param string $body plain text (shown by clients that don't display HTML)
+     * @param string $html optional HTML version, shown by most clients
      * @return bool true if at least one inbox accepted the message
      */
-    public function send(string $subject, string $body, string $replyTo = ''): bool
+    public function send(string $subject, string $body, string $replyTo = '', string $html = ''): bool
     {
         if (!$this->isConfigured()) {
             return false;
         }
         $delivered = false;
         foreach ($this->to as $address) {
-            $error = $this->sendOne($address, $subject, $body, $replyTo);
+            $error = $this->sendOne($address, $subject, $body, $replyTo, $html);
             if ($error === null) {
                 $delivered = true;
             } else {
@@ -61,7 +63,7 @@ class HandoffMailer
     }
 
     /** @return string|null null when the server accepted it, otherwise the error */
-    protected function sendOne(string $to, string $subject, string $body, string $replyTo): ?string
+    protected function sendOne(string $to, string $subject, string $body, string $replyTo, string $html = ''): ?string
     {
         $mail = $this->newMailer();
         try {
@@ -85,8 +87,14 @@ class HandoffMailer
                 $mail->addReplyTo($replyTo);
             }
             $mail->Subject = $subject;
-            $mail->Body = $body;
-            $mail->isHTML(false);
+            if ($html !== '') {
+                $mail->isHTML(true);
+                $mail->Body = $html;
+                $mail->AltBody = $body;
+            } else {
+                $mail->isHTML(false);
+                $mail->Body = $body;
+            }
             $mail->send();
 
             return null;

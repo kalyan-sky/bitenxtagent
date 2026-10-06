@@ -9,7 +9,7 @@ use Bitenxt\SupportAgent\Support\HandoffMailer;
 /** Records hand-over emails instead of sending them. */
 final class FakeMailer extends HandoffMailer
 {
-    /** @var list<array{subject: string, body: string, replyTo: string}> */
+    /** @var list<array{subject: string, body: string, replyTo: string, html: string}> */
     public array $sent = [];
     public bool $fail = false;
 
@@ -18,12 +18,12 @@ final class FakeMailer extends HandoffMailer
         parent::__construct('smtp.test', 587, 'bot@bitenxt.test', 'secret', 'bot@bitenxt.test', ['support@bitenxt.com']);
     }
 
-    public function send(string $subject, string $body, string $replyTo = ''): bool
+    public function send(string $subject, string $body, string $replyTo = '', string $html = ''): bool
     {
         if ($this->fail) {
             return false;
         }
-        $this->sent[] = ['subject' => $subject, 'body' => $body, 'replyTo' => $replyTo];
+        $this->sent[] = ['subject' => $subject, 'body' => $body, 'replyTo' => $replyTo, 'html' => $html];
 
         return true;
     }

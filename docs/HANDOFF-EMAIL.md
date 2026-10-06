@@ -7,6 +7,12 @@ messages of the chat. **Reply-To is the customer**, so the team can just press R
 will come to their registered email. `HANDOFF_EMAIL_TO` can list several inboxes (comma-separated): one email
 goes to all of them, and a reply from any of them reaches the customer.
 
+The email is laid out in sections: **Request** (reason, urgency, order, summary, time received in IST),
+**Customer** (name, email, ID), the **customer's latest message** highlighted, and the **recent conversation**
+(oldest first, Customer and Chatbot labelled). It is sent as HTML with a plain-text copy for clients that
+don't show HTML. The subject reads `[BiteNXT Support] URGENT | Order change | Order 000000729 | Name (email)`
+(`URGENT` and the order appear only when they apply).
+
 If the email can't be sent, the bot does **not** promise a follow-up: it gives the customer the support phone
 number and email instead, and logs `handoff_email_failed` / `handoff_not_delivered` (ERROR) in Cloud Run.
 
@@ -46,7 +52,7 @@ Cloud Run → **bitenxtagent** → **Edit & deploy new revision** → **Variable
 | `SMTP_PASSWORD` | **Reference a secret** → `smtp-password`, version `latest` |
 
 **Deploy**. Then ask the chat "talk to support": the inbox should get an email titled
-`[BiteNXT chat] Customer requested: <customer email>`.
+`[BiteNXT Support] Customer requested | <name> (<customer email>)`.
 
 `SMTP_AUTH_TYPE` (optional) is the SMTP login method: `LOGIN` by default, which works with all of the above;
 `PLAIN`, `CRAM-MD5` or `auto` only if a provider needs it.

@@ -624,12 +624,39 @@ final class ChatServiceTest extends TestCase
 
         self::assertCount(1, $this->mailer->sent);
         $mail = $this->mailer->sent[0];
-        self::assertStringStartsWith('[BiteNXT chat] URGENT Order change: ana@clinic-a.test', $mail['subject']);
+        self::assertSame('[BiteNXT Support] URGENT | Order change | Ana (ana@clinic-a.test)', $mail['subject']);
         self::assertSame('ana@clinic-a.test', $mail['replyTo'], 'the team can reply to the customer directly');
-        self::assertStringContainsString('Customer: Ana <ana@clinic-a.test>', $mail['body']);
-        self::assertStringContainsString('Summary: Wants a different shade.', $mail['body']);
-        self::assertStringContainsString("Customer: status of order 000000101?\nBot: Order 000000101 is in design.", $mail['body']);
-        self::assertStringContainsString('Customer: Please change the shade on that order', $mail['body']);
+
+        // Plain-text part: labelled sections.
+        self::assertStringContainsString("REQUEST\n  Reason      : Order change\n  Urgency     : URGENT", $mail['body']);
+        self::assertStringContainsString('  Summary     : Wants a different shade.', $mail['body']);
+        self::assertStringContainsString("CUSTOMER\n  Name        : Ana\n  Email       : ana@clinic-a.test", $mail['body']);
+        self::assertMatchesRegularExpression('/Received    : \d{2} \w{3} \d{4}, \d{2}:\d{2} [AP]M IST/', $mail['body']);
+        self::assertStringContainsString("CUSTOMER'S LATEST MESSAGE\n  Please change the shade on that order", $mail['body']);
+        self::assertMatchesRegularExpression('/\[Customer\][^\n]*\n  status of order 000000101\?\n\n\[Chatbot\][^\n]*\n  Order 000000101 is in design\./', $mail['body']);
+
+        // HTML part: the same details, laid out for email clients.
+        self::assertStringContainsString('New support request from chat', $mail['html']);
+        self::assertStringContainsString('<a href="mailto:ana@clinic-a.test"', $mail['html']);
+        self::assertStringContainsString('Wants a different shade.', $mail['html']);
+        self::assertStringContainsString('Please change the shade on that order', $mail['html']);
+    }
+
+    public function testHandOverEmailEscapesChatText(): void
+    {
+        $mailer = new FakeMailer();
+        $notifier = new \Bitenxt\SupportAgent\Support\HandoffNotifier($this->dir . '/h.jsonl', '', $mailer);
+        $notifier->notify([
+            'session_id' => 's1', 'customer_id' => 7, 'customer_name' => 'Ana', 'customer_email' => 'ana@clinic-a.test',
+            'reason' => 'other', 'urgency' => 'normal', 'order_number' => '', 'summary' => 'Needs <b>help</b>',
+            'conversation' => [['role' => 'user', 'text' => "<script>alert(1)</script>\nline two"]],
+        ]);
+
+        $html = $mailer->sent[0]['html'];
+        self::assertStringNotContainsString('<script>', $html);
+        self::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;<br>', $html);
+        self::assertStringContainsString('Needs &lt;b&gt;help&lt;/b&gt;', $html);
+        self::assertSame('[BiteNXT Support] Other | Ana (ana@clinic-a.test)', $mailer->sent[0]['subject']);
     }
 
     public function testFailedHandOverIsNotPromisedToTheCustomer(): void
@@ -661,7 +688,7 @@ final class ChatServiceTest extends TestCase
         self::assertStringContainsString("I've passed your request about order 000000101 to our support team", $aboutOrder);
         self::assertStringContainsString('already has this request', $repeatOrder);
         self::assertCount(2, $this->mailer->sent);
-        self::assertStringContainsString('(order 000000101)', $this->mailer->sent[1]['subject']);
+        self::assertStringContainsString('| Order 000000101 |', $this->mailer->sent[1]['subject']);
     }
 
     public function testSupportAboutSomeoneElsesOrderIsNotSent(): void
@@ -697,7 +724,7 @@ final class ChatServiceTest extends TestCase
 
         self::assertStringContainsString("I've passed your request about order 000000101", $reply, 'not "already has this request"');
         self::assertCount(2, $this->mailer->sent);
-        self::assertStringContainsString('(order 000000101)', $this->mailer->sent[1]['subject']);
+        self::assertStringContainsString('| Order 000000101 |', $this->mailer->sent[1]['subject']);
     }
 
     public function testOneBadInboxDoesNotStopTheOthers(): void
@@ -712,7 +739,7 @@ final class ChatServiceTest extends TestCase
                     ['typo@gmail.com', 'contact@bitenxt.com'], 'tls', new Logger($log));
             }
 
-            protected function sendOne(string $to, string $subject, string $body, string $replyTo): ?string
+            protected function sendOne(string $to, string $subject, string $body, string $replyTo, string $html = ''): ?string
             {
                 if ($to === 'typo@gmail.com') {
                     return 'SMTP Error: The following recipients failed: typo@gmail.com';
