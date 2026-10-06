@@ -113,10 +113,10 @@
     var button = el('button', { 'class': 'bnx-btn', type: 'button', 'aria-label': 'Open support chat' }, 'Chat with us');
     var panel = el('div', { 'class': 'bnx-panel', role: 'dialog', 'aria-label': title });
     var head = el('div', { 'class': 'bnx-head' }, title);
-    var close = el('button', { type: 'button', 'aria-label': 'Close chat' }, '×');
+    var close = el('button', { type: 'button', 'aria-label': 'Close chat' }, '\u00D7');
     var log = el('div', { 'class': 'bnx-log', 'aria-live': 'polite' });
     var form = el('form', { 'class': 'bnx-form' });
-    var input = el('textarea', { rows: '2', maxlength: '2000', placeholder: 'Type your message…', 'aria-label': 'Message' });
+    var input = el('textarea', { rows: '2', maxlength: '2000', placeholder: 'Type your message\u2026', 'aria-label': 'Message' });
     var send = el('button', { type: 'submit' }, 'Send');
 
     head.appendChild(close);
@@ -125,7 +125,7 @@
     panel.appendChild(head);
     if (supportPhone) {
       panel.appendChild(el('a', { 'class': 'bnx-call', href: 'tel:' + supportPhone.replace(/[^\d+]/g, '') },
-        '📞 Urgent? Call us: ' + supportPhone));
+        '\uD83D\uDCDE Urgent? Call us: ' + supportPhone));
     }
     panel.appendChild(log);
     panel.appendChild(form);
@@ -163,12 +163,12 @@
       log.scrollTop = log.scrollHeight;
     }
 
-    // 👍/👎 under each new answer; helps find answers that need better content.
+    // Thumbs up/down under each new answer; helps find answers that need better content.
     function addRating(at) {
       var token = currentToken();
       if (!token || !at) return;
       var bar = el('div', { 'class': 'bnx-rate' });
-      [['up', '👍', 'Helpful'], ['down', '👎', 'Not helpful']].forEach(function (r) {
+      [['up', '\uD83D\uDC4D', 'Helpful'], ['down', '\uD83D\uDC4E', 'Not helpful']].forEach(function (r) {
         var b = el('button', { type: 'button', 'aria-label': r[2], title: r[2] }, r[1]);
         b.addEventListener('click', function () {
           bar.textContent = '';
@@ -228,7 +228,7 @@
       if (!token || historyLoadedFor === token) return;
       historyLoadedFor = token;
       clearLog();
-      log.appendChild(el('div', { 'class': 'bnx-time' }, 'Loading your messages…'));
+      log.appendChild(el('div', { 'class': 'bnx-time' }, 'Loading your messages\u2026'));
       send.disabled = true; // so a new message can't be wiped by the history arriving
       fetch(historyUrl, { headers: { Authorization: 'Bearer ' + token } })
         .then(function (r) { return r.json().then(function (data) { return { status: r.status, data: data }; }); })
@@ -292,7 +292,7 @@
       Array.prototype.forEach.call(log.querySelectorAll('.bnx-chips'), function (c) { c.remove(); });
       add(text, 'user');
       send.disabled = true;
-      var pending = add('Typing…', 'bot');
+      var pending = add('Typing\u2026', 'bot');
       pending.classList.add('bnx-typing');
 
       fetch(apiUrl, {
@@ -388,7 +388,7 @@
   //   data-token-source="localStorage"   localStorage (default) | sessionStorage | cookie
   //   data-token-path="auth.token"       only if the stored value is JSON
   //   data-title="BiteNXT Support"       optional panel title
-  //   data-support-phone="+91 …"         optional; defaults to the service's SUPPORT_PHONE
+  //   data-support-phone="+91 ..."            optional; defaults to the service's SUPPORT_PHONE
   if (script && script.hasAttribute('data-auto-init')) {
     var tokenKey = script.getAttribute('data-token-key');
     var tokenSource = script.getAttribute('data-token-source') || 'localStorage';

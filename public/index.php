@@ -57,7 +57,7 @@ if (isset($scripts[$path])) {
     header('Content-Type: application/javascript; charset=utf-8');
     header('Cache-Control: public, max-age=300');
     header('Access-Control-Allow-Origin: *');
-    $phone = substr((string) json_encode($config->supportPhone, JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG), 1, -1);
+    $phone = substr((string) json_encode($config->supportPhone, JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG), 1, -1);
     echo str_replace('__BNX_SUPPORT_PHONE__', $phone, (string) file_get_contents(dirname(__DIR__) . '/src/Widget/' . $scripts[$path]));
     exit;
 }

@@ -241,7 +241,7 @@
       this._title = el('span', { part: 'title' });
       var titleSlot = el('slot', { name: 'heading' });
       titleSlot.appendChild(this._title);
-      this._closeBtn = el('button', { 'class': 'close', part: 'close', type: 'button', 'aria-label': 'Close chat' }, '×');
+      this._closeBtn = el('button', { 'class': 'close', part: 'close', type: 'button', 'aria-label': 'Close chat' }, '\u00D7');
       header.appendChild(titleSlot);
       header.appendChild(this._closeBtn);
       this._call = el('a', { 'class': 'call', part: 'call' });
@@ -271,11 +271,11 @@
       var heading = this.getAttribute('heading') || 'BiteNXT Support';
       this._title.textContent = heading;
       this._panel.setAttribute('aria-label', heading);
-      this._input.setAttribute('placeholder', this.getAttribute('placeholder') || 'Type your message…');
+      this._input.setAttribute('placeholder', this.getAttribute('placeholder') || 'Type your message\u2026');
       var phone = this.getAttribute('support-phone') || SERVER_PHONE;
       this._call.hidden = !phone;
       if (phone) {
-        this._call.textContent = '📞 Urgent? Call us: ' + phone;
+        this._call.textContent = '\uD83D\uDCDE Urgent? Call us: ' + phone;
         this._call.setAttribute('href', 'tel:' + phone.replace(/[^\d+]/g, ''));
       }
     }
@@ -325,7 +325,7 @@
       if (!token || !at) return;
       var self = this;
       var bar = el('div', { 'class': 'rating', part: 'rating' });
-      [['up', '👍', 'Helpful'], ['down', '👎', 'Not helpful']].forEach(function (r) {
+      [['up', '\uD83D\uDC4D', 'Helpful'], ['down', '\uD83D\uDC4E', 'Not helpful']].forEach(function (r) {
         var b = el('button', { type: 'button', 'aria-label': r[2], title: r[2] }, r[1]);
         b.addEventListener('click', function () {
           bar.textContent = '';
@@ -381,7 +381,7 @@
       this._historyFor = token;
       var self = this;
       this._clear();
-      this._log.appendChild(el('div', { 'class': 'separator', part: 'separator' }, 'Loading your messages…'));
+      this._log.appendChild(el('div', { 'class': 'separator', part: 'separator' }, 'Loading your messages\u2026'));
       this._busy = true;
       this._sendBtn.disabled = true;
       fetch(this._api('/history'), { headers: { Authorization: 'Bearer ' + token } })
@@ -417,7 +417,7 @@
       this._emit('bitenxt-message-sent', { text: text });
       this._busy = true;
       this._sendBtn.disabled = true;
-      var pending = this._add('Typing…', 'bot');
+      var pending = this._add('Typing\u2026', 'bot');
       pending.classList.add('typing');
 
       fetch(this._api(), {
