@@ -628,7 +628,7 @@ final class ChatServiceTest extends TestCase
         yield ['cancel order 000000101'];
         yield ['my crown for John is late, why?'];
         yield ['what is the turnaround time for crowns?'];
-        yield ['can I change the shade on order 000000101 and add a note?'];
+        yield ['can I change the shade on order 000000101?'];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('questionsForTheAi')]
@@ -708,6 +708,54 @@ final class ChatServiceTest extends TestCase
         self::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;<br>', $html);
         self::assertStringContainsString('Needs &lt;b&gt;help&lt;/b&gt;', $html);
         self::assertSame('[BiteNXT Support] Other | Ana (ana@clinic-a.test)', $mailer->sent[0]['subject']);
+    }
+
+    /** @return iterable<array{string}> */
+    public static function attachmentOrNoteChanges(): iterable
+    {
+        yield ['i need to update the order attachments and related notes'];
+        yield ['update attachments for order 000000101'];
+        yield ['I want to replace the STL file'];
+        yield ['how do I add notes to my order?'];
+        yield ['need to change the order details'];
+        yield ['can I change the shade on order 000000101 and add a note?'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('attachmentOrNoteChanges')]
+    public function testAttachmentAndNoteChangesExplainMyOrderAndOfferEmail(string $message): void
+    {
+        $claude = new ScriptedClaude([]);
+        $reply = $this->service($claude, fastPath: true, articles: true)->handle($message, 'token-clinic-a', '10.0.0.1');
+
+        self::assertSame([], $claude->requests, 'no AI call');
+        self::assertStringContainsString('1. Open My Order in BiteNXT Pro.', $reply['reply']);
+        self::assertStringContainsString('I can email your request to our support team.', $reply['reply']);
+        self::assertSame('Email this to support', $reply['quick_replies'][0]);
+        self::assertSame([], $this->mailer->sent, 'nothing is emailed until the customer asks');
+    }
+
+    public function testEmailThisToSupportSendsTheOriginalRequest(): void
+    {
+        $service = $this->service(new ScriptedClaude([]), fastPath: true);
+        $offer = $service->handle('I need to update the attachments on order 101, the lower scan was wrong', 'token-clinic-a', '10.0.0.1');
+        $sent = $service->handle('Email this to support', 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertStringContainsString('order 000000101 yourself', $offer['reply']);
+        self::assertSame(['Email this to support', 'Follow-ups on order 101'], $offer['quick_replies']);
+        self::assertStringContainsString("I've passed your request about order 000000101 to our support team. They'll reply to your registered email", $sent);
+        self::assertCount(1, $this->mailer->sent);
+        $mail = $this->mailer->sent[0];
+        self::assertStringContainsString('Order change: "I need to update the attachments on order 101', $mail['subject']);
+        self::assertStringContainsString('| Order 000000101 |', $mail['subject']);
+        self::assertStringContainsString("WHAT THE CUSTOMER NEEDS\n  I need to update the attachments on order 101, the lower scan was wrong", $mail['body']);
+    }
+
+    public function testEmailThisToSupportWithoutAnOfferAsksWhatItIsAbout(): void
+    {
+        $reply = $this->service(new ScriptedClaude([]), fastPath: true)->handle('Email this to support', 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertStringContainsString('What do you need help with?', $reply);
+        self::assertSame([], $this->mailer->sent);
     }
 
     public function testFailedHandOverIsNotPromisedToTheCustomer(): void

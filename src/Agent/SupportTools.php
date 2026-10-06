@@ -53,6 +53,25 @@ final class SupportTools
         $this->session->supportAskedAt = $waiting ? time() : 0;
     }
 
+    /** Remembers a request the bot offered to email to support, until the customer taps "Email this to support". */
+    public function setSupportDraft(string $request, string $orderNumber): void
+    {
+        $this->session->supportDraft = mb_substr($request, 0, 600);
+        $this->session->supportDraftOrder = $orderNumber;
+        $this->session->supportDraftAt = time();
+    }
+
+    /** @return array{request: string, order: string}|null the offered request (once), if it is still recent */
+    public function takeSupportDraft(): ?array
+    {
+        $draft = $this->session->supportDraftAt > time() - self::SUPPORT_DETAILS_SECONDS && $this->session->supportDraft !== ''
+            ? ['request' => $this->session->supportDraft, 'order' => $this->session->supportDraftOrder]
+            : null;
+        [$this->session->supportDraft, $this->session->supportDraftOrder, $this->session->supportDraftAt] = ['', '', 0];
+
+        return $draft;
+    }
+
     /** The order last discussed, if it is confirmed to be this customer's; otherwise "". */
     public function lastOrder(): string
     {

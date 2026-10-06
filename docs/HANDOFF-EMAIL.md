@@ -13,6 +13,11 @@ complaint"...), the chat first asks what they need help with, with buttons for t
 it is about ("talk to support, my crown is cracked") is sent straight away. Every different request gets its own
 email; only the exact same request twice is held back (at most 5 emails per conversation).
 
+When a customer asks to update or change attachments, scan files, notes or order details, the chat explains that
+they can add attachments and notes themselves (My Order → the order → the service) and offers an **Email this to
+support** button. Tapping it emails their original message to the team as an "Order change" request, with the order
+when it is known.
+
 The email starts with **What the customer needs** (their request in their own words), then **Request** (reason,
 urgency, order, summary, time received in IST), **Customer** (name, email, ID) and the **recent conversation**,
 newest message first. It is sent as HTML with a plain-text copy for clients that don't show HTML. The subject reads
