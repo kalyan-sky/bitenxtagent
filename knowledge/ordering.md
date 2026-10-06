@@ -16,7 +16,7 @@ Everything you can order is in the BiteNXT Pro catalog, grouped by category. Ask
 Many products have options you choose before adding them to the cart, such as dropdowns, checkboxes or text fields for instructions. Some products also ask which teeth they apply to. Fill in every required option; the product cannot be added to the cart until they are complete.
 
 ## Can I change or cancel an order
-You can't change or cancel an order from this chat or after checkout yourself. Ask this chat to connect you with the support team and include the order number; the team will follow up by email.
+You can't change or cancel an order from this chat or after checkout yourself. Ask this chat to connect you with the support team and include the order number; the team will reply to your registered email.
 
 ## Reordering a previous order
 To order the same items again, open the past order in your order history and choose reorder. The items are put back in your cart, where you check the patient, doctor, files and options before checking out again.

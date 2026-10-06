@@ -110,9 +110,10 @@ final class FastPath
             ]);
             $status = $result['status'] ?? '';
             if ($status === 'escalated' || $status === 'already_escalated') {
+                $to = ($result['reply_to'] ?? '') !== '' ? " ({$result['reply_to']})" : '';
                 $lines = [$status === 'already_escalated'
-                    ? 'Our support team already has your request and will follow up by email.'
-                    : "I've passed your request to our support team. They'll follow up by email."];
+                    ? "Our support team already has your request. They'll reply to your registered email{$to}."
+                    : "I've passed your request to our support team. They'll reply to your registered email{$to}."];
                 if ($this->supportPhone !== '') {
                     $lines[] = "If it's urgent, call us on {$this->supportPhone}.";
                 }

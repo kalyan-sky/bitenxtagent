@@ -566,6 +566,7 @@ final class ChatServiceTest extends TestCase
     {
         $reply = $this->service(new ScriptedClaude([]), fastPath: true)->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
 
+        self::assertStringContainsString("They'll reply to your registered email (ana@clinic-a.test).", $reply);
         self::assertStringContainsString("If it's urgent, call us on +91 96422 03377.", $reply);
         $handoff = json_decode(trim((string) file_get_contents($this->dir . '/handoffs.jsonl')), true);
         self::assertSame('customer_requested', $handoff['reason']);
@@ -637,7 +638,7 @@ final class ChatServiceTest extends TestCase
         $reply = $this->service(new ScriptedClaude([]), fastPath: true)->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
 
         self::assertStringContainsString("Sorry, I couldn't reach the team from chat just now. Please call +91 96422 03377", $reply);
-        self::assertStringNotContainsString('follow up by email', $reply);
+        self::assertStringNotContainsString('registered email', $reply, 'no promise when nothing was sent');
         self::assertStringContainsString('handoff_not_delivered', (string) file_get_contents($this->dir . '/log.jsonl') . $this->handoffLog());
     }
 
