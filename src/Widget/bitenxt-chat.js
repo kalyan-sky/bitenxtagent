@@ -15,7 +15,7 @@
  *   - element.token = '...'          (set null on logout)
  *   - element.getToken = () => '...' (called whenever a token is needed)
  *
- * Replies are rendered with textContent only, never innerHTML, so a reply
+ * Replies are rendered as text nodes (plus <strong> for **bold**), never innerHTML, so a reply
  * can't inject markup or scripts into the page.
  */
 (function () {
@@ -35,7 +35,7 @@
 
   var CSS = [
     ':host{',
-    '  --bnx-primary:#d9518e; --bnx-primary-contrast:#ffffff; --bnx-primary-soft:#fbe9f1;',
+    '  --bnx-primary:#d65897; --bnx-primary-contrast:#ffffff; --bnx-primary-soft:#fbeaf3;',
     '  --bnx-font:inherit; --bnx-font-size:14px; --bnx-text:#1d2327; --bnx-muted:#6b7680;',
     '  --bnx-bg:#ffffff; --bnx-log-bg:#f7f8fa; --bnx-border:#e4e7eb;',
     '  --bnx-bot-bg:#ffffff; --bnx-bot-text:var(--bnx-text);',
@@ -94,6 +94,22 @@
     Object.keys(attrs || {}).forEach(function (k) { node.setAttribute(k, attrs[k]); });
     if (text !== undefined) node.textContent = text;
     return node;
+  }
+
+  // Shows **bold** as bold. Built from text nodes and <strong> elements only
+  // (never innerHTML), so a reply still can't inject markup.
+  function renderText(node, text) {
+    node.textContent = '';
+    String(text).split(/\*\*([^*\n][^*]*?)\*\*/).forEach(function (part, i) {
+      if (part === '') return;
+      if (i % 2 === 1) {
+        var strong = document.createElement('strong');
+        strong.textContent = part;
+        node.appendChild(strong);
+      } else {
+        node.appendChild(document.createTextNode(part));
+      }
+    });
   }
 
   // Pro may store the token as a plain string, a JSON string or inside a JSON
@@ -225,7 +241,7 @@
       this._title = el('span', { part: 'title' });
       var titleSlot = el('slot', { name: 'heading' });
       titleSlot.appendChild(this._title);
-      this._closeBtn = el('button', { 'class': 'close', part: 'close', type: 'button', 'aria-label': 'Close chat' }, '×');
+      this._closeBtn = el('button', { 'class': 'close', part: 'close', type: 'button', 'aria-label': 'Close chat' }, '\u00D7');
       header.appendChild(titleSlot);
       header.appendChild(this._closeBtn);
       this._call = el('a', { 'class': 'call', part: 'call' });
@@ -255,11 +271,11 @@
       var heading = this.getAttribute('heading') || 'BiteNXT Support';
       this._title.textContent = heading;
       this._panel.setAttribute('aria-label', heading);
-      this._input.setAttribute('placeholder', this.getAttribute('placeholder') || 'Type your message…');
+      this._input.setAttribute('placeholder', this.getAttribute('placeholder') || 'Type your message\u2026');
       var phone = this.getAttribute('support-phone') || SERVER_PHONE;
       this._call.hidden = !phone;
       if (phone) {
-        this._call.textContent = '📞 Urgent? Call us: ' + phone;
+        this._call.textContent = '\uD83D\uDCDE Urgent? Call us: ' + phone;
         this._call.setAttribute('href', 'tel:' + phone.replace(/[^\d+]/g, ''));
       }
     }
@@ -271,7 +287,8 @@
       }
       this._lastAt = at;
       var role = who === 'user' ? 'user' : 'bot';
-      var msg = el('div', { 'class': 'msg ' + role, part: 'message message-' + role }, text);
+      var msg = el('div', { 'class': 'msg ' + role, part: 'message message-' + role });
+      if (role === 'bot') renderText(msg, text); else msg.textContent = text;
       this._log.appendChild(msg);
       this._log.scrollTop = this._log.scrollHeight;
       return msg;
@@ -308,7 +325,7 @@
       if (!token || !at) return;
       var self = this;
       var bar = el('div', { 'class': 'rating', part: 'rating' });
-      [['up', '👍', 'Helpful'], ['down', '👎', 'Not helpful']].forEach(function (r) {
+      [['up', '\uD83D\uDC4D', 'Helpful'], ['down', '\uD83D\uDC4E', 'Not helpful']].forEach(function (r) {
         var b = el('button', { type: 'button', 'aria-label': r[2], title: r[2] }, r[1]);
         b.addEventListener('click', function () {
           bar.textContent = '';
@@ -364,7 +381,7 @@
       this._historyFor = token;
       var self = this;
       this._clear();
-      this._log.appendChild(el('div', { 'class': 'separator', part: 'separator' }, 'Loading your messages…'));
+      this._log.appendChild(el('div', { 'class': 'separator', part: 'separator' }, 'Loading your messages\u2026'));
       this._busy = true;
       this._sendBtn.disabled = true;
       fetch(this._api('/history'), { headers: { Authorization: 'Bearer ' + token } })
@@ -400,7 +417,7 @@
       this._emit('bitenxt-message-sent', { text: text });
       this._busy = true;
       this._sendBtn.disabled = true;
-      var pending = this._add('Typing…', 'bot');
+      var pending = this._add('Typing\u2026', 'bot');
       pending.classList.add('typing');
 
       fetch(this._api(), {
@@ -410,7 +427,7 @@
       })
         .then(function (r) { return r.json().then(function (d) { return { status: r.status, data: d }; }); })
         .then(function (res) {
-          pending.textContent = res.data.reply || 'Sorry, something went wrong. Please try again.';
+          renderText(pending, res.data.reply || 'Sorry, something went wrong. Please try again.');
           if (res.status === 401) self._emit('bitenxt-auth-required', {});
           if (res.status === 200) self._addRating(res.data.at);
           if (res.data.quick_replies && res.data.quick_replies.length) self._addChips(res.data.quick_replies);

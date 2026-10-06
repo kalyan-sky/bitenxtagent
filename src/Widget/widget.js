@@ -32,7 +32,7 @@
  *
  * The API address defaults to <origin of widget.js>/chat.
  *
- * Replies are rendered with textContent only, never innerHTML, so a reply
+ * Replies are rendered as text nodes (plus <strong> for **bold**), never innerHTML, so a reply
  * can't inject markup or scripts into the page.
  */
 (function () {
@@ -47,6 +47,22 @@
     Object.keys(attrs || {}).forEach(function (k) { node.setAttribute(k, attrs[k]); });
     if (text) node.textContent = text;
     return node;
+  }
+
+  // Shows **bold** as bold. Built from text nodes and <strong> elements only
+  // (never innerHTML), so a reply still can't inject markup.
+  function renderText(node, text) {
+    node.textContent = '';
+    String(text).split(/\*\*([^*\n][^*]*?)\*\*/).forEach(function (part, i) {
+      if (part === '') return;
+      if (i % 2 === 1) {
+        var strong = document.createElement('strong');
+        strong.textContent = part;
+        node.appendChild(strong);
+      } else {
+        node.appendChild(document.createTextNode(part));
+      }
+    });
   }
 
   function init(options) {
@@ -65,42 +81,42 @@
     var style = el('style');
     style.textContent = [
       '.bnx-btn{display:none;position:fixed;right:20px;bottom:20px;z-index:99999;border:0;border-radius:28px;padding:14px 20px;',
-      'background:#0b6e8a;color:#fff;font:600 15px system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2)}',
+      'background:#d65897;color:#fff;font:600 15px system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2)}',
       '.bnx-panel{position:fixed;right:20px;bottom:84px;z-index:99999;width:360px;max-width:calc(100vw - 32px);height:520px;',
       'max-height:calc(100vh - 120px);display:none;flex-direction:column;background:#fff;border-radius:12px;',
       'box-shadow:0 8px 30px rgba(0,0,0,.25);font:14px/1.45 system-ui,sans-serif;color:#1d2327;overflow:hidden}',
       '.bnx-panel.open{display:flex}',
-      '.bnx-head{background:#0b6e8a;color:#fff;padding:12px 16px;font-weight:600;display:flex;justify-content:space-between}',
+      '.bnx-head{background:#d65897;color:#fff;padding:12px 16px;font-weight:600;display:flex;justify-content:space-between}',
       '.bnx-head button{background:none;border:0;color:#fff;font-size:18px;cursor:pointer}',
       '.bnx-log{flex:1;overflow-y:auto;padding:12px;background:#f5f7f8}',
       '.bnx-msg{max-width:85%;margin:6px 0;padding:8px 12px;border-radius:10px;white-space:pre-wrap;word-wrap:break-word}',
       '.bnx-bot{background:#fff;border:1px solid #e1e5e8}',
-      '.bnx-user{background:#0b6e8a;color:#fff;margin-left:auto}',
+      '.bnx-user{background:#d65897;color:#fff;margin-left:auto}',
       '.bnx-form{display:flex;border-top:1px solid #e1e5e8}',
       '.bnx-form textarea{flex:1;border:0;padding:12px;resize:none;font:inherit;outline:none}',
-      '.bnx-form button{border:0;background:#0b6e8a;color:#fff;padding:0 16px;cursor:pointer;font-weight:600}',
+      '.bnx-form button{border:0;background:#d65897;color:#fff;padding:0 16px;cursor:pointer;font-weight:600}',
       '.bnx-btn.ready{display:block}',
       '.bnx-time{text-align:center;color:#6b7680;font-size:12px;margin:12px 0 4px}',
       '.bnx-form button:disabled{opacity:.5}',
       '.bnx-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}',
-      '.bnx-chip{border:1px solid #0b6e8a;background:#fff;color:#0b6e8a;border-radius:16px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}',
-      '.bnx-chip:hover{background:#e8f3f6}',
+      '.bnx-chip{border:1px solid #d65897;background:#fff;color:#d65897;border-radius:16px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}',
+      '.bnx-chip:hover{background:#fbeaf3}',
       '.bnx-rate{display:flex;gap:4px;margin:-2px 0 6px}',
       '.bnx-rate button{border:0;background:none;cursor:pointer;font-size:14px;opacity:.55;padding:2px 4px}',
       '.bnx-rate button:hover{opacity:1}',
       '.bnx-rate span{color:#6b7680;font-size:12px}',
       '.bnx-typing{color:#6b7680;font-style:italic}',
-      '.bnx-call{display:block;background:#e8f3f6;color:#0b6e8a;text-decoration:none;padding:6px 16px;font-size:13px;border-bottom:1px solid #e1e5e8}'
+      '.bnx-call{display:block;background:#fbeaf3;color:#d65897;text-decoration:none;padding:6px 16px;font-size:13px;border-bottom:1px solid #e1e5e8}'
     ].join('');
     document.head.appendChild(style);
 
     var button = el('button', { 'class': 'bnx-btn', type: 'button', 'aria-label': 'Open support chat' }, 'Chat with us');
     var panel = el('div', { 'class': 'bnx-panel', role: 'dialog', 'aria-label': title });
     var head = el('div', { 'class': 'bnx-head' }, title);
-    var close = el('button', { type: 'button', 'aria-label': 'Close chat' }, '×');
+    var close = el('button', { type: 'button', 'aria-label': 'Close chat' }, '\u00D7');
     var log = el('div', { 'class': 'bnx-log', 'aria-live': 'polite' });
     var form = el('form', { 'class': 'bnx-form' });
-    var input = el('textarea', { rows: '2', maxlength: '2000', placeholder: 'Type your message…', 'aria-label': 'Message' });
+    var input = el('textarea', { rows: '2', maxlength: '2000', placeholder: 'Type your message\u2026', 'aria-label': 'Message' });
     var send = el('button', { type: 'submit' }, 'Send');
 
     head.appendChild(close);
@@ -109,7 +125,7 @@
     panel.appendChild(head);
     if (supportPhone) {
       panel.appendChild(el('a', { 'class': 'bnx-call', href: 'tel:' + supportPhone.replace(/[^\d+]/g, '') },
-        '📞 Urgent? Call us: ' + supportPhone));
+        '\uD83D\uDCDE Urgent? Call us: ' + supportPhone));
     }
     panel.appendChild(log);
     panel.appendChild(form);
@@ -147,12 +163,12 @@
       log.scrollTop = log.scrollHeight;
     }
 
-    // 👍/👎 under each new answer; helps find answers that need better content.
+    // Thumbs up/down under each new answer; helps find answers that need better content.
     function addRating(at) {
       var token = currentToken();
       if (!token || !at) return;
       var bar = el('div', { 'class': 'bnx-rate' });
-      [['up', '👍', 'Helpful'], ['down', '👎', 'Not helpful']].forEach(function (r) {
+      [['up', '\uD83D\uDC4D', 'Helpful'], ['down', '\uD83D\uDC4E', 'Not helpful']].forEach(function (r) {
         var b = el('button', { type: 'button', 'aria-label': r[2], title: r[2] }, r[1]);
         b.addEventListener('click', function () {
           bar.textContent = '';
@@ -189,7 +205,8 @@
         log.appendChild(el('div', { 'class': 'bnx-time' }, separatorLabel(at)));
       }
       lastAt = at;
-      var msg = el('div', { 'class': 'bnx-msg ' + (who === 'user' ? 'bnx-user' : 'bnx-bot') }, text);
+      var msg = el('div', { 'class': 'bnx-msg ' + (who === 'user' ? 'bnx-user' : 'bnx-bot') });
+      if (who === 'user') msg.textContent = text; else renderText(msg, text);
       log.appendChild(msg);
       log.scrollTop = log.scrollHeight;
       return msg;
@@ -211,7 +228,7 @@
       if (!token || historyLoadedFor === token) return;
       historyLoadedFor = token;
       clearLog();
-      log.appendChild(el('div', { 'class': 'bnx-time' }, 'Loading your messages…'));
+      log.appendChild(el('div', { 'class': 'bnx-time' }, 'Loading your messages\u2026'));
       send.disabled = true; // so a new message can't be wiped by the history arriving
       fetch(historyUrl, { headers: { Authorization: 'Bearer ' + token } })
         .then(function (r) { return r.json().then(function (data) { return { status: r.status, data: data }; }); })
@@ -275,7 +292,7 @@
       Array.prototype.forEach.call(log.querySelectorAll('.bnx-chips'), function (c) { c.remove(); });
       add(text, 'user');
       send.disabled = true;
-      var pending = add('Typing…', 'bot');
+      var pending = add('Typing\u2026', 'bot');
       pending.classList.add('bnx-typing');
 
       fetch(apiUrl, {
@@ -292,7 +309,7 @@
             pending.textContent = res.data.reply || 'Your session has expired. Please log in again.';
             return;
           }
-          pending.textContent = res.data.reply || 'Sorry, something went wrong. Please try again.';
+          renderText(pending, res.data.reply || 'Sorry, something went wrong. Please try again.');
           if (res.status === 200) addRating(res.data.at);
           if (res.data.quick_replies && res.data.quick_replies.length) addChips(res.data.quick_replies);
         })
@@ -371,7 +388,7 @@
   //   data-token-source="localStorage"   localStorage (default) | sessionStorage | cookie
   //   data-token-path="auth.token"       only if the stored value is JSON
   //   data-title="BiteNXT Support"       optional panel title
-  //   data-support-phone="+91 …"         optional; defaults to the service's SUPPORT_PHONE
+  //   data-support-phone="+91 ..."            optional; defaults to the service's SUPPORT_PHONE
   if (script && script.hasAttribute('data-auto-init')) {
     var tokenKey = script.getAttribute('data-token-key');
     var tokenSource = script.getAttribute('data-token-source') || 'localStorage';
