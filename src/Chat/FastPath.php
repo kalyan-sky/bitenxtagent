@@ -108,11 +108,22 @@ final class FastPath
                 'order_number' => '',
                 'urgency' => 'normal',
             ]);
-            $lines = [($result['status'] ?? '') === 'already_escalated'
-                ? 'Our support team already has your request and will follow up by email.'
-                : "I've passed your request to our support team. They'll follow up by email."];
-            if ($this->supportPhone !== '') {
-                $lines[] = "If it's urgent, call us on {$this->supportPhone}.";
+            $status = $result['status'] ?? '';
+            if ($status === 'escalated' || $status === 'already_escalated') {
+                $lines = [$status === 'already_escalated'
+                    ? 'Our support team already has your request and will follow up by email.'
+                    : "I've passed your request to our support team. They'll follow up by email."];
+                if ($this->supportPhone !== '') {
+                    $lines[] = "If it's urgent, call us on {$this->supportPhone}.";
+                }
+            } else {
+                // The request could not be sent: give the direct contacts instead of a promise.
+                $contacts = array_filter([
+                    $this->supportPhone !== '' ? "call {$this->supportPhone}" : '',
+                    $this->supportEmail !== '' ? "email {$this->supportEmail}" : '',
+                ]);
+                $lines = ["Sorry, I couldn't reach the team from chat just now."
+                    . ($contacts !== [] ? ' Please ' . implode(' or ', $contacts) . ' and they will help you.' : ' Please try again shortly.')];
             }
 
             return self::reply(implode("\n", $lines), ['My recent orders']);

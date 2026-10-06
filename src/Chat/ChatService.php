@@ -101,6 +101,7 @@ final class ChatService
         // provider answered (and replaced the AI history).
         [$previousMessages, $previousProvider] = [$session->messages, $session->provider];
         $tools = new SupportTools($session, $customerToken, $this->magento, $this->knowledge, $this->handoff, $this->logger);
+        $tools->currentMessage = $input->text;
 
         // Lookups, greetings and clear how-to questions are answered from
         // templates and help articles, without the AI.

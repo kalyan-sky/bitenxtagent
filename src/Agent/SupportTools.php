@@ -23,6 +23,9 @@ use Bitenxt\SupportAgent\Support\Logger;
 final class SupportTools
 {
     public const MAX_FAILED_ORDER_LOOKUPS = 5;
+
+    /** The message being answered (not yet in the transcript), for hand-over emails. */
+    public string $currentMessage = '';
     private const ORDER_NUMBER = '/^[A-Za-z0-9-]{3,32}$/';
 
     public function __construct(
@@ -521,19 +524,30 @@ final class SupportTools
         }
         $orderNumber = trim((string) ($input['order_number'] ?? ''));
 
+        $conversation = array_slice($this->session->transcript, -10);
+        if ($this->currentMessage !== '') {
+            $conversation[] = ['role' => 'user', 'text' => $this->currentMessage];
+        }
         $sent = $this->handoff->notify([
             'session_id' => $this->session->id,
             'customer_id' => $this->session->customerId,
+            'customer_name' => $this->session->customerFirstname,
             'customer_email' => $this->session->customerEmail,
+            'conversation' => $conversation,
             'reason' => (string) ($input['reason'] ?? 'other'),
             'urgency' => ($input['urgency'] ?? '') === 'high' ? 'high' : 'normal',
             // Only pass on an order number we have confirmed belongs to this customer.
             'order_number' => in_array($orderNumber, $this->session->knownOrderNumbers, true) ? $orderNumber : '',
             'summary' => mb_substr((string) ($input['summary'] ?? ''), 0, 600),
         ]);
+        if (!$sent) {
+            // Don't promise an email that nobody will receive.
+            return ['status' => 'not_delivered', 'message' => 'The request could not be sent to the team automatically. '
+                . 'Apologise and give the customer the support phone number and email to contact the team directly.'];
+        }
         $this->session->escalated = true;
 
-        return ['status' => $sent ? 'escalated' : 'queued', 'message' => 'Tell the customer the support team will follow up by email.'];
+        return ['status' => 'escalated', 'message' => 'Tell the customer the support team will follow up by email.'];
     }
 
     /** @return array<string, string>|null */

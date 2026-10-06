@@ -70,6 +70,7 @@ Artifact Registry, Firestore, secret, service accounts, GitHub trigger, environm
 click by click in **[docs/DEPLOY-CONSOLE.md](docs/DEPLOY-CONSOLE.md)**.
 To keep the monthly bill under $10 (Gemini Flash-Lite, free-tier Cloud Run, billing alert), follow
 **[docs/LOW-COST.md](docs/LOW-COST.md)**.
+Hand-over emails to the support inbox: **[docs/HANDOFF-EMAIL.md](docs/HANDOFF-EMAIL.md)**.
 For the Pro frontend team: the chat as a themable web component, `<bitenxt-chat>`, is described in
 **[docs/WEB-COMPONENT.md](docs/WEB-COMPONENT.md)**.
 
@@ -228,6 +229,9 @@ See `.env.example`. Key settings:
 | `TOKEN_LIMIT_GLOBAL_PER_HOUR` / `_PER_DAY` | 200000 / 1000000 | Whole service (1M/day caps Gemini Flash-Lite at about $5 a month) |
 | `PRO_PORTAL_URL` | (empty) | Pro portal link the bot gives customers, e.g. `https://uat-pro.bitenxt.com` |
 | `AI_HISTORY_TURNS` | 6 | Only the last N question/answer pairs are sent to the AI (keeps each call small) |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_ENCRYPTION` / `SMTP_USERNAME` / `SMTP_FROM` | (empty) / 587 / tls | Mailbox that sends hand-over emails (see docs/HANDOFF-EMAIL.md) |
+| `SMTP_PASSWORD` | (secret) | From Secret Manager |
+| `HANDOFF_EMAIL_TO` | `SUPPORT_EMAIL` | Where hand-over emails go (comma-separated) |
 | `AI_MODE` | fallback | `fallback`: orders, patients, follow-ups, coupons, cart, catalog, products, "talk to support", greetings and clear how-to questions are answered instantly from Magento and the help articles; the AI only handles the rest. `primary`: the AI also answers how-to questions. `off`: no AI at all, unmatched questions get a menu of what the bot can do |
 | `FAST_PATH` | on | `off` sends everything to the AI (or, with `AI_MODE=off`, to the menu) |
 | `MAX_MESSAGE_CHARS` | 2000 | |

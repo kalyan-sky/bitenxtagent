@@ -27,6 +27,7 @@ use Bitenxt\SupportAgent\Magento\GraphQLClient;
 use Bitenxt\SupportAgent\Magento\MagentoCustomerDataSource;
 use Bitenxt\SupportAgent\Session\FileSessionStore;
 use Bitenxt\SupportAgent\Session\FirestoreSessionStore;
+use Bitenxt\SupportAgent\Support\HandoffMailer;
 use Bitenxt\SupportAgent\Support\HandoffNotifier;
 use Bitenxt\SupportAgent\Support\Logger;
 
@@ -88,7 +89,13 @@ final class App
             agent: $agent,
             magento: $magento,
             knowledge: $knowledge,
-            handoff: new HandoffNotifier($onCloud ? 'php://stderr' : $storage . '/handoffs.jsonl', $config->handoffWebhookUrl),
+            handoff: new HandoffNotifier(
+                $onCloud ? 'php://stderr' : $storage . '/handoffs.jsonl',
+                $config->handoffWebhookUrl,
+                new HandoffMailer($config->smtpHost, $config->smtpPort, $config->smtpUsername, $config->smtpPassword,
+                    $config->smtpFrom, $config->handoffEmailTo, $config->smtpEncryption, $logger),
+                $logger,
+            ),
             logger: $logger,
             maxTurnsPerConversation: $config->maxTurnsPerConversation,
             conversationIdleSeconds: $config->conversationIdleSeconds,

@@ -24,6 +24,7 @@ final class ChatServiceTest extends TestCase
 {
     private string $dir;
     private FakeMagento $magento;
+    private FakeMailer $mailer;
     private FileSessionStore $sessions;
 
     protected function setUp(): void
@@ -33,6 +34,7 @@ final class ChatServiceTest extends TestCase
         mkdir($this->dir . '/kb', 0700, true);
         file_put_contents($this->dir . '/kb/shipping.md', "# Shipping\n\n## Turnaround times\nCrowns take 5 working days.\n");
         $this->magento = new FakeMagento();
+        $this->mailer = new FakeMailer();
         $this->sessions = new FileSessionStore($this->dir . '/sessions', 3600);
     }
 
@@ -57,7 +59,7 @@ final class ChatServiceTest extends TestCase
             ),
             magento: $this->magento,
             knowledge: new KnowledgeBase($this->dir . '/kb'),
-            handoff: new HandoffNotifier($this->dir . '/handoffs.jsonl'),
+            handoff: new HandoffNotifier($this->dir . '/handoffs.jsonl', '', $this->mailer, new Logger($this->dir . '/log.jsonl')),
             logger: new Logger($this->dir . '/log.jsonl'),
             maxTurnsPerConversation: 40,
             fastPath: $fastPath ? new FastPath($articles ? new KnowledgeBase(dirname(__DIR__) . '/knowledge') : null, '+91 96422 03377') : null,
@@ -604,6 +606,44 @@ final class ChatServiceTest extends TestCase
         $reply = $this->service($claude, fastPath: true)->handle('orders for patient Mary', 'token-clinic-a', '10.0.0.1')['reply'];
 
         self::assertSame("I couldn't find any orders for a patient named \"Mary\" on your account.", $reply);
+    }
+
+    public function testHandOverEmailsTheSupportInboxWithTheConversation(): void
+    {
+        $claude = new ScriptedClaude([
+            ScriptedClaude::text('Order 000000101 is in design.'),
+            ScriptedClaude::toolCall('escalate_to_human', [
+                'reason' => 'order_change', 'summary' => 'Wants a different shade.', 'order_number' => '000000101', 'urgency' => 'high',
+            ], 'toolu_a'),
+            ScriptedClaude::text('I have passed this to our team.'),
+        ]);
+        $service = $this->service($claude);
+        $service->handle('status of order 000000101?', 'token-clinic-a', '10.0.0.1');
+        $service->handle('Please change the shade on that order', 'token-clinic-a', '10.0.0.1');
+
+        self::assertCount(1, $this->mailer->sent);
+        $mail = $this->mailer->sent[0];
+        self::assertStringStartsWith('[BiteNXT chat] URGENT Order change: ana@clinic-a.test', $mail['subject']);
+        self::assertSame('ana@clinic-a.test', $mail['replyTo'], 'the team can reply to the customer directly');
+        self::assertStringContainsString('Customer: Ana <ana@clinic-a.test>', $mail['body']);
+        self::assertStringContainsString('Summary: Wants a different shade.', $mail['body']);
+        self::assertStringContainsString("Customer: status of order 000000101?\nBot: Order 000000101 is in design.", $mail['body']);
+        self::assertStringContainsString('Customer: Please change the shade on that order', $mail['body']);
+    }
+
+    public function testFailedHandOverIsNotPromisedToTheCustomer(): void
+    {
+        $this->mailer->fail = true;
+        $reply = $this->service(new ScriptedClaude([]), fastPath: true)->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertStringContainsString("Sorry, I couldn't reach the team from chat just now. Please call +91 96422 03377", $reply);
+        self::assertStringNotContainsString('follow up by email', $reply);
+        self::assertStringContainsString('handoff_not_delivered', (string) file_get_contents($this->dir . '/log.jsonl') . $this->handoffLog());
+    }
+
+    private function handoffLog(): string
+    {
+        return (string) @file_get_contents($this->dir . '/handoffs.jsonl');
     }
 
     public function testNoToolAcceptsAnIdentityChosenByTheModel(): void

@@ -53,6 +53,14 @@ final class Config
         public readonly string $proPortalUrl = '',
         public readonly bool $fastPathEnabled = true,
         public readonly string $aiMode = 'fallback',
+        public readonly string $smtpHost = '',
+        public readonly int $smtpPort = 587,
+        public readonly string $smtpUsername = '',
+        public readonly string $smtpPassword = '',
+        public readonly string $smtpEncryption = 'tls',
+        public readonly string $smtpFrom = '',
+        /** @var list<string> */
+        public readonly array $handoffEmailTo = [],
     ) {
     }
 
@@ -95,6 +103,14 @@ final class Config
             aiHistoryTurns: max(1, (int) $env('AI_HISTORY_TURNS', '6')),
             proPortalUrl: rtrim($env('PRO_PORTAL_URL'), '/'),
             fastPathEnabled: !in_array(strtolower($env('FAST_PATH', 'on')), ['off', 'false', '0', 'no'], true),
+            smtpHost: $env('SMTP_HOST'),
+            smtpPort: (int) $env('SMTP_PORT', '587'),
+            smtpUsername: $env('SMTP_USERNAME'),
+            smtpPassword: $env('SMTP_PASSWORD'),
+            smtpEncryption: strtolower($env('SMTP_ENCRYPTION', 'tls')),
+            smtpFrom: $env('SMTP_FROM', $env('SMTP_USERNAME')),
+            // Hand-over emails go here; defaults to the support address customers are given.
+            handoffEmailTo: array_values(array_filter(array_map('trim', explode(',', $env('HANDOFF_EMAIL_TO', $env('SUPPORT_EMAIL')))))),
             aiMode: in_array($mode = strtolower($env('AI_MODE', 'fallback')), ['primary', 'fallback', 'off'], true) ? $mode : 'fallback',
         );
     }
