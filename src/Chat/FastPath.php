@@ -120,6 +120,7 @@ final class FastPath
                 'urgency' => 'normal',
             ]);
             $status = $result['status'] ?? '';
+            $order = $order !== '' ? $order : (string) ($result['order_number'] ?? '');
             if ($status === 'escalated' || $status === 'already_escalated') {
                 $to = ($result['reply_to'] ?? '') !== '' ? " ({$result['reply_to']})" : '';
                 $lines = [$status === 'already_escalated'

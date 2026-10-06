@@ -33,12 +33,34 @@ class HandoffMailer
         return $this->host !== '' && $this->from !== '' && $this->to !== [];
     }
 
-    /** @return bool true if the SMTP server accepted the message */
+    /**
+     * Sends one copy to each inbox, so one bad address (a typo, a full or
+     * closed mailbox) can't stop the others from getting it.
+     *
+     * @return bool true if at least one inbox accepted the message
+     */
     public function send(string $subject, string $body, string $replyTo = ''): bool
     {
         if (!$this->isConfigured()) {
             return false;
         }
+        $delivered = false;
+        foreach ($this->to as $address) {
+            $error = $this->sendOne($address, $subject, $body, $replyTo);
+            if ($error === null) {
+                $delivered = true;
+            } else {
+                // ErrorInfo never contains the password; staff addresses are fine to log.
+                $this->logger?->log('handoff_email_failed', ['to' => $address, 'detail' => mb_substr($error, 0, 300)]);
+            }
+        }
+
+        return $delivered;
+    }
+
+    /** @return string|null null when the server accepted it, otherwise the error */
+    protected function sendOne(string $to, string $subject, string $body, string $replyTo): ?string
+    {
         $mail = $this->newMailer();
         try {
             $mail->isSMTP();
@@ -55,9 +77,7 @@ class HandoffMailer
             };
             $mail->CharSet = PHPMailer::CHARSET_UTF8;
             $mail->setFrom($this->from, 'BiteNXT support chat');
-            foreach ($this->to as $address) {
-                $mail->addAddress($address);
-            }
+            $mail->addAddress($to);
             if ($replyTo !== '' && filter_var($replyTo, FILTER_VALIDATE_EMAIL)) {
                 $mail->addReplyTo($replyTo);
             }
@@ -66,12 +86,9 @@ class HandoffMailer
             $mail->isHTML(false);
             $mail->send();
 
-            return true;
+            return null;
         } catch (MailException $e) {
-            // ErrorInfo never contains the password.
-            $this->logger?->log('handoff_email_failed', ['detail' => mb_substr($mail->ErrorInfo ?: $e->getMessage(), 0, 300)]);
-
-            return false;
+            return $mail->ErrorInfo ?: $e->getMessage();
         }
     }
 
