@@ -46,8 +46,8 @@ class HandoffMailer
             $mail->Port = $this->port;
             $mail->Timeout = $this->timeoutSeconds;
             $mail->SMTPAuth = $this->username !== '';
-            $mail->Username = trim($this->username);
-            $mail->Password = self::cleanPassword($this->host, $this->password);
+            $mail->Username = $this->username;
+            $mail->Password = $this->password;
             $mail->SMTPSecure = match ($this->encryption) {
                 'ssl' => PHPMailer::ENCRYPTION_SMTPS,
                 'none' => '',
@@ -73,19 +73,6 @@ class HandoffMailer
 
             return false;
         }
-    }
-
-    /**
-     * Secrets pasted into Secret Manager often end with a newline, and Google
-     * shows app passwords as "abcd efgh ijkl mnop". Google app passwords never
-     * contain spaces, so those are removed; other providers' passwords are only
-     * trimmed (they may legitimately contain spaces).
-     */
-    public static function cleanPassword(string $host, string $password): string
-    {
-        $password = trim($password, "\r\n\t ");
-
-        return preg_match('/(^|\.)(gmail|googlemail)\.com$/i', $host) ? (string) preg_replace('/\s+/', '', $password) : $password;
     }
 
     /** Separate so tests can capture messages instead of sending them. */
