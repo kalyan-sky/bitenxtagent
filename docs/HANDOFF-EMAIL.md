@@ -48,6 +48,12 @@ Cloud Run → **bitenxtagent** → **Edit & deploy new revision** → **Variable
 **Deploy**. Then ask the chat "talk to support": the inbox should get an email titled
 `[BiteNXT chat] Customer requested: <customer email>`.
 
+`SMTP_AUTH_TYPE` (optional) is the SMTP login method: `LOGIN` by default, which works with all of the above;
+`PLAIN`, `CRAM-MD5` or `auto` only if a provider needs it.
+
+**Brevo:** under Security → Authorized IPs, deactivate IP blocking (Cloud Run's IP changes), and set `SMTP_FROM`
+to a verified sender, not the `…@smtp-brevo.com` login.
+
 ## Troubleshooting
 
 Cloud Run → **Logs**, search `handoff_email_failed`. The `detail` says what went wrong:

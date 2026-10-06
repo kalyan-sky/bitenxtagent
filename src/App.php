@@ -93,7 +93,7 @@ final class App
                 $onCloud ? 'php://stderr' : $storage . '/handoffs.jsonl',
                 $config->handoffWebhookUrl,
                 new HandoffMailer($config->smtpHost, $config->smtpPort, $config->smtpUsername, $config->smtpPassword,
-                    $config->smtpFrom, $config->handoffEmailTo, $config->smtpEncryption, $logger),
+                    $config->smtpFrom, $config->handoffEmailTo, $config->smtpEncryption, $logger, 10, $config->smtpAuthType),
                 $logger,
             ),
             logger: $logger,
