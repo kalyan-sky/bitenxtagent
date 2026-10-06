@@ -244,6 +244,7 @@ final class SupportTools
 
         $view = OrderPresenter::order($order);
         $this->trust($view);
+        $this->session->lastOrder = (string) ($view['order_number'] ?? '');
 
         return ['order' => $view];
     }
@@ -422,6 +423,7 @@ final class SupportTools
             $orderNumber = (string) ($order['number'] ?? $orderNumber); // e.g. "726" → "000000726"
         }
         $this->session->rememberOrder($orderNumber);
+        $this->session->lastOrder = $orderNumber;
 
         $items = [];
         foreach ($this->magento->orderFollowUps($this->customerToken, $orderNumber) as $followUp) {
@@ -525,9 +527,17 @@ final class SupportTools
         if (ctype_digit($orderNumber) && strlen($orderNumber) < 9) {
             $orderNumber = str_pad($orderNumber, 9, '0', STR_PAD_LEFT); // "728" -> "000000728"
         }
+        if ($orderNumber !== '' && in_array($orderNumber, $this->session->knownOrderNumbers, true)) {
+            $this->session->lastOrder = $orderNumber;
+        }
         // Only pass on an order number we have confirmed belongs to this customer.
         $orderNumber = in_array($orderNumber, $this->session->knownOrderNumbers, true) ? $orderNumber : '';
         $reason = (string) ($input['reason'] ?? 'other');
+        if ($orderNumber === '' && $reason === 'customer_requested'
+            && in_array($this->session->lastOrder, $this->session->knownOrderNumbers, true)) {
+            // "talk to support" right after discussing an order is about that order.
+            $orderNumber = $this->session->lastOrder;
+        }
 
         // A new request (different reason or order) gets its own email; a repeat doesn't.
         $key = $reason . '|' . $orderNumber;
@@ -560,7 +570,7 @@ final class SupportTools
         $this->session->escalated = true;
         $this->session->handoffKeys[] = $key;
 
-        return ['status' => 'escalated', 'reply_to' => $this->session->customerEmail,
+        return ['status' => 'escalated', 'reply_to' => $this->session->customerEmail, 'order_number' => $orderNumber,
             'message' => 'Tell the customer the support team will reply to their registered email address (reply_to).'];
     }
 

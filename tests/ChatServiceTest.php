@@ -688,6 +688,46 @@ final class ChatServiceTest extends TestCase
         self::assertCount(SupportTools::MAX_HANDOFFS_PER_CONVERSATION, $this->mailer->sent);
     }
 
+    public function testTalkToSupportAfterAnOrderIsAboutThatOrder(): void
+    {
+        $service = $this->service(new ScriptedClaude([]), fastPath: true);
+        $service->handle('talk to support', 'token-clinic-a', '10.0.0.1');          // general request
+        $service->handle('status of order 000000101', 'token-clinic-a', '10.0.0.1');
+        $reply = $service->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertStringContainsString("I've passed your request about order 000000101", $reply, 'not "already has this request"');
+        self::assertCount(2, $this->mailer->sent);
+        self::assertStringContainsString('(order 000000101)', $this->mailer->sent[1]['subject']);
+    }
+
+    public function testOneBadInboxDoesNotStopTheOthers(): void
+    {
+        $log = $this->dir . '/mail.jsonl';
+        $mailer = new class ($log) extends \Bitenxt\SupportAgent\Support\HandoffMailer {
+            public array $accepted = [];
+
+            public function __construct(string $log)
+            {
+                parent::__construct('smtp.test', 587, 'bot@x.test', 'pw', 'bot@x.test',
+                    ['typo@gmail.com', 'contact@bitenxt.com'], 'tls', new Logger($log));
+            }
+
+            protected function sendOne(string $to, string $subject, string $body, string $replyTo): ?string
+            {
+                if ($to === 'typo@gmail.com') {
+                    return 'SMTP Error: The following recipients failed: typo@gmail.com';
+                }
+                $this->accepted[] = $to;
+
+                return null;
+            }
+        };
+
+        self::assertTrue($mailer->send('Subject', 'Body', 'ana@clinic-a.test'));
+        self::assertSame(['contact@bitenxt.com'], $mailer->accepted);
+        self::assertStringContainsString('"to":"typo@gmail.com"', (string) file_get_contents($log));
+    }
+
     public function testNoToolAcceptsAnIdentityChosenByTheModel(): void
     {
         foreach (SupportTools::definitions() as $tool) {

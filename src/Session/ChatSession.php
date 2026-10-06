@@ -44,6 +44,8 @@ final class ChatSession
         public string $provider = '',
         /** @var list<string> hand-overs already sent in this conversation ("reason|order") */
         public array $handoffKeys = [],
+        /** the single order last looked at in this conversation (confirmed to be the customer's) */
+        public string $lastOrder = '',
     ) {
     }
 
@@ -155,6 +157,7 @@ final class ChatSession
             // Conversations saved before multi-provider support are Claude-format.
             provider: (string) ($data['provider'] ?? (($data['messages'] ?? []) !== [] ? 'claude' : '')),
             handoffKeys: array_values(array_map('strval', $data['handoffKeys'] ?? [])),
+            lastOrder: (string) ($data['lastOrder'] ?? ''),
         );
     }
 
