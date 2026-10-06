@@ -76,6 +76,11 @@ final class MagentoCustomerDataSource implements CustomerDataSource
 
     public function recentOrders(string $token, int $limit): array
     {
+        // Pro's "My Order" list includes the patient on each order; Customer.orders' patient_name fails on UAT.
+        $proOrders = $this->proOrderList($token);
+        if ($proOrders !== null && $proOrders !== []) {
+            return array_slice($proOrders, 0, $limit);
+        }
         $data = $this->queryOrders(
             'query ($pageSize: Int!) { customer { orders(currentPage: 1, pageSize: $pageSize, '
                 . 'sort: { sort_field: CREATED_AT, sort_direction: DESC }) { items { %s } } } }',

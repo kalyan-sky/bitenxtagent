@@ -56,6 +56,8 @@ final class FastPath
         . '(talk|speak|chat|connect)(\s+me)?\s+(to|with)\s+(a\s+|the\s+|your\s+|someone\s+(from\s+)?)?'
         . '(support|agent|human|person|someone|team|executive|customer\s+care|representative)(\s+team)?\s*[?.!]*\s*$|'
         . '^\s*(support|customer\s+care|human|agent|talk\s+to\s+support|contact\s+support)\s*[?.!]*\s*$/i';
+    private const SUPPORT_ABOUT_ORDER = '/\b(talk|speak|chat|connect|email|mail|contact|message|tell|inform)\b.{0,40}\b(support|team|agent|human|someone|person)\b'
+        . '.{0,30}?\b(about|regarding|for|on|re)\s+(the\s+|my\s+)?(order\s*(number|no\.?|#)?\s*)?#?(\d{3,12})\b/i';
     private const GREETING = '/^\s*(hi+|hello+|hey+|hii+|good\s+(morning|afternoon|evening)|namaste|greetings)(\s+there)?\s*[!.?]*\s*$/i';
     private const THANKS = '/^\s*(thanks?(\s+you)?(\s+so\s+much)?|thank\s+you(\s+so\s+much)?|thx|ty|ok(ay)?|great|cool|got\s+it|perfect|'
         . 'that\'?s\s+all|bye|goodbye)\s*[!.]*\s*$/i';
@@ -101,19 +103,28 @@ final class FastPath
         if (preg_match(self::THANKS, $text)) {
             return self::reply("You're welcome! Anything else I can help with?", ['My recent orders', 'Talk to support']);
         }
-        if (preg_match(self::SUPPORT, $text)) {
+        $order = '';
+        if (preg_match(self::SUPPORT_ABOUT_ORDER, $text, $m)) {
+            // Confirm the order is theirs first, so the email can name it.
+            $check = self::run($tools, 'get_order_status', ['order_number' => $m[7]]);
+            if (isset($check['error'])) {
+                return self::errorReply($check['error'], $m[7]);
+            }
+            $order = (string) ($check['order']['order_number'] ?? '');
+        }
+        if ($order !== '' || preg_match(self::SUPPORT, $text)) {
             $result = self::run($tools, 'escalate_to_human', [
                 'reason' => 'customer_requested',
-                'summary' => 'The customer asked in chat to talk to the support team.',
-                'order_number' => '',
+                'summary' => 'The customer asked in chat to talk to the support team' . ($order !== '' ? " about order {$order}." : '.'),
+                'order_number' => $order,
                 'urgency' => 'normal',
             ]);
             $status = $result['status'] ?? '';
             if ($status === 'escalated' || $status === 'already_escalated') {
                 $to = ($result['reply_to'] ?? '') !== '' ? " ({$result['reply_to']})" : '';
                 $lines = [$status === 'already_escalated'
-                    ? "Our support team already has your request. They'll reply to your registered email{$to}."
-                    : "I've passed your request to our support team. They'll reply to your registered email{$to}."];
+                    ? "Our support team already has this request. They'll reply to your registered email{$to}."
+                    : "I've passed your request" . ($order !== '' ? " about order {$order}" : '') . " to our support team. They'll reply to your registered email{$to}."];
                 if ($this->supportPhone !== '') {
                     $lines[] = "If it's urgent, call us on {$this->supportPhone}.";
                 }

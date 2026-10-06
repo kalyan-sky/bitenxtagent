@@ -266,4 +266,17 @@ final class MagentoCustomerDataSourceTest extends TestCase
         self::assertSame([], $orders);
         self::assertCount(1, $requests);
     }
+
+    public function testRecentOrdersComeFromProsOrderListWithPatientNames(): void
+    {
+        $orders = $this->source(fn (array $request) => str_contains($request['query'], 'customerOrders')
+            ? ['data' => ['customerOrders' => ['items' => [
+                ['order_number' => '000000727', 'created_at' => '2026-10-05 06:55:03', 'status' => 'processing', 'status_title' => 'Processing', 'patient_name' => 'Vinod'],
+                ['order_number' => '000000728', 'created_at' => '2026-10-05 09:36:27', 'status' => 'processing', 'status_title' => 'Processing', 'patient_name' => 'Kalyan'],
+            ]]]]
+            : self::fail('Customer.orders is not needed'))->recentOrders('tok', 5);
+
+        self::assertSame(['000000728', '000000727'], array_column($orders, 'number'));
+        self::assertSame('Kalyan', OrderPresenter::orderSummary($orders[0])['patient']);
+    }
 }

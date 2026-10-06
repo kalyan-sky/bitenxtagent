@@ -23,6 +23,8 @@ use Bitenxt\SupportAgent\Support\Logger;
 final class SupportTools
 {
     public const MAX_FAILED_ORDER_LOOKUPS = 5;
+    /** Hand-over emails per conversation, so a customer (or a looping AI) can't flood the inbox. */
+    public const MAX_HANDOFFS_PER_CONVERSATION = 3;
 
     /** The message being answered (not yet in the transcript), for hand-over emails. */
     public string $currentMessage = '';
@@ -519,11 +521,21 @@ final class SupportTools
     /** @param array<string, mixed> $input */
     private function escalate(array $input): array
     {
-        if ($this->session->escalated) {
-            return ['status' => 'already_escalated', 'reply_to' => $this->session->customerEmail,
-                'message' => 'The support team already has this conversation and will reply to the customer\'s registered email.'];
-        }
         $orderNumber = trim((string) ($input['order_number'] ?? ''));
+        if (ctype_digit($orderNumber) && strlen($orderNumber) < 9) {
+            $orderNumber = str_pad($orderNumber, 9, '0', STR_PAD_LEFT); // "728" -> "000000728"
+        }
+        // Only pass on an order number we have confirmed belongs to this customer.
+        $orderNumber = in_array($orderNumber, $this->session->knownOrderNumbers, true) ? $orderNumber : '';
+        $reason = (string) ($input['reason'] ?? 'other');
+
+        // A new request (different reason or order) gets its own email; a repeat doesn't.
+        $key = $reason . '|' . $orderNumber;
+        if (in_array($key, $this->session->handoffKeys, true)
+            || count($this->session->handoffKeys) >= self::MAX_HANDOFFS_PER_CONVERSATION) {
+            return ['status' => 'already_escalated', 'reply_to' => $this->session->customerEmail,
+                'message' => 'The support team already has this request and will reply to the customer\'s registered email.'];
+        }
 
         $conversation = array_slice($this->session->transcript, -10);
         if ($this->currentMessage !== '') {
@@ -535,10 +547,9 @@ final class SupportTools
             'customer_name' => $this->session->customerFirstname,
             'customer_email' => $this->session->customerEmail,
             'conversation' => $conversation,
-            'reason' => (string) ($input['reason'] ?? 'other'),
+            'reason' => $reason,
             'urgency' => ($input['urgency'] ?? '') === 'high' ? 'high' : 'normal',
-            // Only pass on an order number we have confirmed belongs to this customer.
-            'order_number' => in_array($orderNumber, $this->session->knownOrderNumbers, true) ? $orderNumber : '',
+            'order_number' => $orderNumber,
             'summary' => mb_substr((string) ($input['summary'] ?? ''), 0, 600),
         ]);
         if (!$sent) {
@@ -547,6 +558,7 @@ final class SupportTools
                 . 'Apologise and give the customer the support phone number and email to contact the team directly.'];
         }
         $this->session->escalated = true;
+        $this->session->handoffKeys[] = $key;
 
         return ['status' => 'escalated', 'reply_to' => $this->session->customerEmail,
             'message' => 'Tell the customer the support team will reply to their registered email address (reply_to).'];

@@ -647,6 +647,47 @@ final class ChatServiceTest extends TestCase
         return (string) @file_get_contents($this->dir . '/handoffs.jsonl');
     }
 
+    public function testEachDistinctSupportRequestIsEmailedButRepeatsAreNot(): void
+    {
+        $service = $this->service(new ScriptedClaude([]), fastPath: true);
+
+        $first = $service->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
+        $repeat = $service->handle('talk to support', 'token-clinic-a', '10.0.0.1')['reply'];
+        $aboutOrder = $service->handle('email the support now regarding order number 000000101', 'token-clinic-a', '10.0.0.1')['reply'];
+        $repeatOrder = $service->handle('talk to support about order 000000101', 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertStringContainsString("I've passed your request to our support team", $first);
+        self::assertStringContainsString('already has this request', $repeat);
+        self::assertStringContainsString("I've passed your request about order 000000101 to our support team", $aboutOrder);
+        self::assertStringContainsString('already has this request', $repeatOrder);
+        self::assertCount(2, $this->mailer->sent);
+        self::assertStringContainsString('(order 000000101)', $this->mailer->sent[1]['subject']);
+    }
+
+    public function testSupportAboutSomeoneElsesOrderIsNotSent(): void
+    {
+        $reply = $this->service(new ScriptedClaude([]), fastPath: true)
+            ->handle('talk to support about order 000000202', 'token-clinic-a', '10.0.0.1')['reply'];
+
+        self::assertStringContainsString("I couldn't find order 000000202 on your account", $reply);
+        self::assertSame([], $this->mailer->sent);
+    }
+
+    public function testHandOversAreCappedPerConversation(): void
+    {
+        $claude = new ScriptedClaude(array_merge(...array_map(fn ($i) => [
+            ScriptedClaude::toolCall('escalate_to_human', ['reason' => ['order_change', 'refund_or_billing', 'remake_or_quality', 'delivery_problem'][$i],
+                'summary' => 'Issue ' . $i, 'order_number' => '', 'urgency' => 'normal'], 'toolu_' . $i),
+            ScriptedClaude::text('Passed on.'),
+        ], range(0, 3))));
+        $service = $this->service($claude);
+        foreach (range(0, 3) as $i) {
+            $service->handle('I have another problem ' . $i, 'token-clinic-a', '10.0.0.1');
+        }
+
+        self::assertCount(SupportTools::MAX_HANDOFFS_PER_CONVERSATION, $this->mailer->sent);
+    }
+
     public function testNoToolAcceptsAnIdentityChosenByTheModel(): void
     {
         foreach (SupportTools::definitions() as $tool) {
