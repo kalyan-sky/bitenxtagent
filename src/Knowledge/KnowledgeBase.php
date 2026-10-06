@@ -86,6 +86,30 @@ final class KnowledgeBase
     }
 
     /**
+     * The best-matching section with how sure the match is: the share of the
+     * question's own words (not synonyms) found in it, and whether any of
+     * them is in its heading. Used to answer clear how-to questions directly.
+     *
+     * @return array{title: string, body: string, coverage: float, title_hit: bool}|null
+     */
+    public function bestMatch(string $query): ?array
+    {
+        $best = $this->search($query, 1)[0] ?? null;
+        $terms = array_values(array_unique(self::terms($query)));
+        if ($best === null || $terms === []) {
+            return null;
+        }
+        $titleTerms = self::terms($best['title']);
+        $allTerms = array_merge($titleTerms, self::terms($best['body']));
+        $matched = count(array_intersect($terms, $allTerms));
+
+        return $best + [
+            'coverage' => $matched / count($terms),
+            'title_hit' => array_intersect($terms, $titleTerms) !== [],
+        ];
+    }
+
+    /**
      * @param list<string> $terms
      * @return list<string>
      */

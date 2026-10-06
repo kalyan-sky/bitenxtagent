@@ -124,9 +124,11 @@
     ];
 
     // Quick replies, like Amazon's chat: tap one to send it.
-    function addChips() {
+    function addChips(list) {
+      list = list || suggestions;
+      if (!list.length) return;
       var chips = el('div', { 'class': 'bnx-chips' });
-      suggestions.forEach(function (text) {
+      list.forEach(function (text) {
         var chip = el('button', { 'class': 'bnx-chip', type: 'button' }, text);
         chip.addEventListener('click', function () {
           if (send.disabled) return;
@@ -269,6 +271,8 @@
       if (!text || send.disabled) return;
       if (!token) { syncLogin(); return; }
       input.value = '';
+      // Old suggestion buttons no longer apply once the customer moves on.
+      Array.prototype.forEach.call(log.querySelectorAll('.bnx-chips'), function (c) { c.remove(); });
       add(text, 'user');
       send.disabled = true;
       var pending = add('Typing…', 'bot');
@@ -290,6 +294,7 @@
           }
           pending.textContent = res.data.reply || 'Sorry, something went wrong. Please try again.';
           if (res.status === 200) addRating(res.data.at);
+          if (res.data.quick_replies && res.data.quick_replies.length) addChips(res.data.quick_replies);
         })
         .catch(function () {
           pending.textContent = 'Sorry, I could not reach support right now. Please try again.';

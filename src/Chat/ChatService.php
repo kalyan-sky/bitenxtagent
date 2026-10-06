@@ -39,6 +39,11 @@ final class ChatService
     public const HISTORY_LIMIT = 200;
     /** How long a verified login is trusted before Magento is asked again. */
     public const IDENTITY_CACHE_SECONDS = 300;
+    /** AI_MODE: the AI answers everything the fast path doesn't (default: only what nothing else can answer). */
+    public const AI_PRIMARY = 'primary';
+    public const AI_FALLBACK = 'fallback';
+    public const AI_OFF = 'off';
+    public const MENU_REPLY = "I can help with these. Tap one, or send me an order number or a patient's name:";
 
     public function __construct(
         private readonly SessionStore $sessions,
@@ -53,6 +58,7 @@ final class ChatService
         private readonly int $maxTurnsPerConversation,
         private readonly int $conversationIdleSeconds = 1800,
         private readonly ?FastPath $fastPath = null,
+        private readonly string $aiMode = self::AI_FALLBACK,
     ) {
     }
 
@@ -96,11 +102,19 @@ final class ChatService
         [$previousMessages, $previousProvider] = [$session->messages, $session->provider];
         $tools = new SupportTools($session, $customerToken, $this->magento, $this->knowledge, $this->handoff, $this->logger);
 
-        // Simple order lookups are answered from a template, without the AI.
+        // Lookups, greetings and clear how-to questions are answered from
+        // templates and help articles, without the AI.
         $fast = $input->flags === [] ? $this->fastPath?->answer($input->text, $tools) : null;
+        $quickReplies = [];
         if ($fast !== null) {
-            $result = ['reply' => $fast, 'stop_reason' => 'fast_path', 'provider' => 'fast_path'];
+            $result = ['reply' => $fast['text'], 'stop_reason' => $fast['kind'], 'provider' => 'fast_path'];
+            $quickReplies = $fast['quick_replies'];
             // The AI never saw this turn: its next call starts from the transcript instead.
+            [$session->messages, $session->provider] = [[], 'fast_path'];
+        } elseif ($this->aiMode === self::AI_OFF) {
+            // No AI: offer what the bot can do instead of guessing.
+            $result = ['reply' => self::MENU_REPLY, 'stop_reason' => 'menu', 'provider' => 'none'];
+            $quickReplies = FastPath::MENU;
             [$session->messages, $session->provider] = [[], 'fast_path'];
         } else {
             // Provider errors, fallback and token limits are all handled inside the agent.
@@ -140,8 +154,9 @@ final class ChatService
             'turn' => $session->userTurns,
         ]);
 
-        $response = $this->finish($session, $input->text, $output->text);
-        $this->logger->log('timing', ['session' => $session->id, 'path' => $result['stop_reason'] === 'fast_path' ? 'fast_path' : 'ai',
+        $response = $this->finish($session, $input->text, $output->text, $output->wasBlocked() ? [] : $quickReplies);
+        $path = in_array($result['stop_reason'], ['fast_path', 'article', 'menu'], true) ? $result['stop_reason'] : 'ai';
+        $this->logger->log('timing', ['session' => $session->id, 'path' => $path,
             'total_ms' => (int) ((hrtime(true) - $started) / 1e6)] + Timing::summary());
 
         return $response;
@@ -261,13 +276,14 @@ final class ChatService
     }
 
     /** Records what the customer saw, saves, and builds the response. */
-    private function finish(ChatSession $session, string $userText, string $reply): array
+    /** @param list<string> $quickReplies tap-to-send suggestions for the next message */
+    private function finish(ChatSession $session, string $userText, string $reply, array $quickReplies = []): array
     {
         $session->addTranscript('user', $userText);
         $session->addTranscript('assistant', $reply);
         $this->sessions->save($session);
 
-        return ['status' => 200, 'reply' => $reply, 'at' => time()];
+        return ['status' => 200, 'reply' => $reply, 'at' => time()] + ($quickReplies !== [] ? ['quick_replies' => $quickReplies] : []);
     }
 
     /** @param array<string, mixed> $customer */

@@ -148,6 +148,8 @@ Render `<SupportChat>` only in the logged-in layout.
 
 ## 7. Notes
 
+- After each answer the server may send `quick_replies` (e.g. "Follow-ups on order 728"); the component shows
+  them as chips under the reply, styled by `::part(chip)`.
 - Replies are inserted as text only (never HTML), so a reply can't inject markup.
 - Text is English; replies follow the customer's language.
 - The older one-tag `widget.js` keeps working; use the component for new work.

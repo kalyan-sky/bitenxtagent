@@ -228,7 +228,8 @@ See `.env.example`. Key settings:
 | `TOKEN_LIMIT_GLOBAL_PER_HOUR` / `_PER_DAY` | 200000 / 1000000 | Whole service (1M/day caps Gemini Flash-Lite at about $5 a month) |
 | `PRO_PORTAL_URL` | (empty) | Pro portal link the bot gives customers, e.g. `https://uat-pro.bitenxt.com` |
 | `AI_HISTORY_TURNS` | 6 | Only the last N question/answer pairs are sent to the AI (keeps each call small) |
-| `FAST_PATH` | on | Answer order status and "my orders" from a template, with no AI call. `off` sends everything to the AI |
+| `AI_MODE` | fallback | `fallback`: orders, patients, follow-ups, coupons, cart, catalog, products, "talk to support", greetings and clear how-to questions are answered instantly from Magento and the help articles; the AI only handles the rest. `primary`: the AI also answers how-to questions. `off`: no AI at all, unmatched questions get a menu of what the bot can do |
+| `FAST_PATH` | on | `off` sends everything to the AI (or, with `AI_MODE=off`, to the menu) |
 | `MAX_MESSAGE_CHARS` | 2000 | |
 | `HISTORY_RETENTION_DAYS` | 90 | How long a customer's chat history is kept after their last message |
 | `CONVERSATION_IDLE_MINUTES` | 30 | Quiet time after which the bot starts a fresh conversation (the thread is kept) |

@@ -279,8 +279,8 @@
 
     _clear() { this._log.textContent = ''; this._lastAt = 0; }
 
-    _addChips() {
-      var list = this.suggestions;
+    _addChips(list) {
+      list = list || this.suggestions;
       if (!list.length) return;
       var self = this;
       var chips = el('div', { 'class': 'chips', part: 'chips' });
@@ -394,6 +394,8 @@
       if (!token) { this._sync(); return; }
       var self = this;
       this._input.value = '';
+      // Old suggestion buttons no longer apply once the customer moves on.
+      Array.prototype.forEach.call(this._log.querySelectorAll('.chips'), function (c) { c.remove(); });
       this._add(text, 'user');
       this._emit('bitenxt-message-sent', { text: text });
       this._busy = true;
@@ -411,6 +413,7 @@
           pending.textContent = res.data.reply || 'Sorry, something went wrong. Please try again.';
           if (res.status === 401) self._emit('bitenxt-auth-required', {});
           if (res.status === 200) self._addRating(res.data.at);
+          if (res.data.quick_replies && res.data.quick_replies.length) self._addChips(res.data.quick_replies);
           self._emit('bitenxt-reply', { text: pending.textContent, status: res.status });
         })
         .catch(function () {

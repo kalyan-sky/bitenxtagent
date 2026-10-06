@@ -2,6 +2,11 @@
 
 The code already does the most important parts:
 
+- **AI only as a fallback** (`AI_MODE=fallback`, the default). Orders, patients, follow-ups, coupons, cart,
+  catalog and product search, "talk to support", greetings and clear how-to questions are answered instantly
+  from Magento and the help articles, with tap-to-reply buttons. The AI only answers what nothing else can.
+  Set `AI_MODE=off` to run with no AI at all: unmatched questions get a menu of what the bot can do.
+
 - **Order lookups skip the AI.** "status of order 671", a bare order number, and "my orders" are answered
   from a template (`FAST_PATH=on`). They are instant and cost nothing.
 - **Small AI calls.** Only the last 6 question/answer pairs go to the AI (`AI_HISTORY_TURNS`), and
@@ -93,7 +98,7 @@ each answer with its time.
 Cloud Run → **Logs**, filter by text:
 
 - `timing`: one line per message with `total_ms` and the time spent in `magento_ms`, `firestore_ms` and
-  `llm_ms` (`path` is `fast_path` or `ai`). This shows where any slowness comes from.
+  `llm_ms` (`path` is `fast_path`, `article`, `menu` or `ai`). This shows where any slowness comes from.
 - `llm_call`: each AI call, with `input_tokens`, `output_tokens` and `ms`.
 - `knowledge_gap`: how-to questions no help article answered. Write those articles next.
 - `feedback`: 👍/👎 from customers, with the session and time of the answer.

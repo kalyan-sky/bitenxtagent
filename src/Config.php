@@ -52,6 +52,7 @@ final class Config
         public readonly int $aiHistoryTurns = 6,
         public readonly string $proPortalUrl = '',
         public readonly bool $fastPathEnabled = true,
+        public readonly string $aiMode = 'fallback',
     ) {
     }
 
@@ -94,6 +95,7 @@ final class Config
             aiHistoryTurns: max(1, (int) $env('AI_HISTORY_TURNS', '6')),
             proPortalUrl: rtrim($env('PRO_PORTAL_URL'), '/'),
             fastPathEnabled: !in_array(strtolower($env('FAST_PATH', 'on')), ['off', 'false', '0', 'no'], true),
+            aiMode: in_array($mode = strtolower($env('AI_MODE', 'fallback')), ['primary', 'fallback', 'off'], true) ? $mode : 'fallback',
         );
     }
 
