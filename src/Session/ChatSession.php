@@ -48,6 +48,10 @@ final class ChatSession
         public string $lastOrder = '',
         /** when the bot last asked "what do you need help with?" before contacting support (0 = not waiting) */
         public int $supportAskedAt = 0,
+        /** a change request the bot offered to email to support ("Email this to support"), with its order and time */
+        public string $supportDraft = '',
+        public string $supportDraftOrder = '',
+        public int $supportDraftAt = 0,
     ) {
     }
 
@@ -161,6 +165,9 @@ final class ChatSession
             handoffKeys: array_values(array_map('strval', $data['handoffKeys'] ?? [])),
             lastOrder: (string) ($data['lastOrder'] ?? ''),
             supportAskedAt: (int) ($data['supportAskedAt'] ?? 0),
+            supportDraft: (string) ($data['supportDraft'] ?? ''),
+            supportDraftOrder: (string) ($data['supportDraftOrder'] ?? ''),
+            supportDraftAt: (int) ($data['supportDraftAt'] ?? 0),
         );
     }
 

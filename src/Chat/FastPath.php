@@ -76,6 +76,16 @@ final class FastPath
     private const SUPPORT_ORDER = '/\border\s*(?:number|no\.?|#)?\s*:?\s*#?(\d{3,12})\b|#(\d{3,12})\b|^\s*(\d{3,12})\s*[.!?]*\s*$/i';
     private const SUPPORT_CANCEL = '/^\s*(cancel|no|nope|no\s+thanks?|never\s*mind|nevermind|not\s+now|forget\s+it|stop)\s*[.!]*\s*$/i';
     private const JUST_CONNECT = 'Just connect me';
+    private const EMAIL_THIS = 'Email this to support';
+    /** Changing what was sent with an order: attachments, files, scans, notes or order details. */
+    private const ORDER_FILES_CHANGE = '/\b(update|updating|change|changing|add|adding|upload|uploading|attach|attaching|edit|editing|modify|'
+        . 'replace|replacing|re-?upload|send|sending|correct|fix|remove|delete|include)\b.{0,60}?\b(attachments?|files?|documents?|docs?|'
+        . 'scans?|stls?|notes?|rx|photos?|images?|pictures?|instructions?|reports?|x-?rays?)\b|'
+        . '\b(attachments?|files?|documents?|scans?|stls?|notes?|rx)\b.{0,40}?\b(update|change|edit|modify|replace|re-?upload|correct|fix)\b|'
+        . '\b(update|change|edit|modify|correct)\b.{0,30}?\border\s+details?\b/i';
+    /** Order context: the word "order", a number, or "after ordering". */
+    private const ORDER_CONTEXT = '/\b(orders?|ordered|ordering|placed)\b|\d{3,}|\bpost[\s-]?order\b/i';
+    private const STRONG_CHANGE = '/\b(update|updating|change|changing|edit|editing|modify|replace|replacing|re-?upload|correct|fix)\b/i';
     private const GREETING = '/^\s*(hi+|hello+|hey+|hii+|good\s+(morning|afternoon|evening)|namaste|greetings)(\s+there)?\s*[!.?]*\s*$/i';
     private const THANKS = '/^\s*(thanks?(\s+you)?(\s+so\s+much)?|thank\s+you(\s+so\s+much)?|thx|ty|ok(ay)?|great|cool|got\s+it|perfect|'
         . 'that\'?s\s+all|bye|goodbye)\s*[!.]*\s*$/i';
@@ -127,9 +137,16 @@ final class FastPath
         if (preg_match(self::THANKS, $text)) {
             return self::reply("You're welcome! Anything else I can help with?", ['My recent orders', 'Talk to support']);
         }
+        if ($text === self::EMAIL_THIS && ($draft = $tools->takeSupportDraft()) !== null) {
+            return $this->sendToSupport($draft['request'], $draft['request'], $tools, $draft['order'], 'order_change');
+        }
         $support = $this->support($text, $tools);
         if ($support !== null) {
             return $support;
+        }
+        $change = $this->orderFilesChange($text, $tools);
+        if ($change !== null) {
+            return $change;
         }
         if (preg_match(self::TRACK_NO_NUMBER, $text)) {
             return self::reply('Sure! Send me the order number (for example 671), or pick one from your recent orders.', ['My recent orders']);
@@ -176,10 +193,9 @@ final class FastPath
     }
 
     /** @return array{text: string, quick_replies: list<string>}|null */
-    private function sendToSupport(string $text, string $request, SupportTools $tools): ?array
+    private function sendToSupport(string $text, string $request, SupportTools $tools, string $order = '', string $reason = 'customer_requested'): ?array
     {
-        $order = '';
-        if (preg_match(self::SUPPORT_ORDER, $text, $m)) {
+        if ($order === '' && preg_match(self::SUPPORT_ORDER, $text, $m)) {
             $number = implode('', array_slice($m, 1)); // whichever group matched
             // Confirm the order is theirs first, so the email can name it.
             $check = self::run($tools, 'get_order_status', ['order_number' => $number]);
@@ -193,8 +209,9 @@ final class FastPath
         }
 
         $result = self::run($tools, 'escalate_to_human', [
-            'reason' => 'customer_requested',
-            'summary' => 'The customer asked in chat to talk to the support team'
+            'reason' => $reason,
+            'summary' => ($reason === 'order_change' ? 'The customer wants to update or change details sent with an order'
+                : 'The customer asked in chat to talk to the support team')
                 . ($order !== '' ? " about order {$order}" : '') . ($request !== '' ? ': "' . mb_substr($request, 0, 300) . '"' : '.'),
             'order_number' => $order,
             'urgency' => preg_match('/\b(urgent|urgently|asap|immediately|emergency)\b/i', $text) ? 'high' : 'normal',
@@ -224,6 +241,36 @@ final class FastPath
         }
 
         return self::reply(implode("\n", $lines), ['My recent orders']);
+    }
+
+    /**
+     * "I need to update the attachments / notes / order details": customers can
+     * add attachments and notes themselves in My Order, so say how, and offer
+     * to email the request to the support team for anything they can't change.
+     */
+    private function orderFilesChange(string $text, SupportTools $tools): ?array
+    {
+        if (!preg_match(self::ORDER_FILES_CHANGE, $text) || preg_match('/\b(cancel|refund|remake|return)\b/i', $text)
+            || (!preg_match(self::ORDER_CONTEXT, $text) && !preg_match(self::STRONG_CHANGE, $text))) {
+            return null;
+        }
+        $order = '';
+        if (preg_match(self::SUPPORT_ORDER, $text, $m)) {
+            $check = self::run($tools, 'get_order_status', ['order_number' => implode('', array_slice($m, 1))]);
+            $order = (string) ($check['order']['order_number'] ?? ''); // not theirs or not found: just leave it out
+        }
+        $order = $order !== '' ? $order : $tools->lastOrder();
+        $tools->setSupportDraft($text, $order);
+        $short = ltrim($order, '0');
+
+        return self::reply(implode("\n", [
+            'You can add attachments and notes to ' . ($order !== '' ? "order {$order}" : 'an order') . ' yourself after it is placed:',
+            '1. Open My Order in BiteNXT Pro.',
+            '2. Click ' . ($order !== '' ? "order {$order}" : 'the order number') . ' to open it.',
+            '3. On the service it is about, add your attachment (scan files, photos or documents) and/or your note.',
+            'If you need something changed that you can\'t do there, for example replacing a file or correcting details on the order, '
+                . 'I can email your request to our support team.',
+        ]), [self::EMAIL_THIS, $order !== '' ? "Follow-ups on order {$short}" : 'My recent orders']);
     }
 
     /** Whether a support message says what it is about (an order number, or a few words beyond "connect me"). */
