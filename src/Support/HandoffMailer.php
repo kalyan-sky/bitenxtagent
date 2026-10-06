@@ -6,7 +6,6 @@ namespace Bitenxt\SupportAgent\Support;
 
 use PHPMailer\PHPMailer\Exception as MailException;
 use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\SMTP;
 
 /**
  * Emails hand-over requests to the support inbox over SMTP (any provider:
@@ -65,16 +64,6 @@ class HandoffMailer
     protected function sendOne(string $to, string $subject, string $body, string $replyTo): ?string
     {
         $mail = $this->newMailer();
-        // Keep the server's last error reply (e.g. "525 5.7.1 Unauthorized IP address"):
-        // PHPMailer reduces many failures to "Could not authenticate". Only server lines
-        // are looked at, never what we send, so credentials can't end up in the log.
-        $serverError = '';
-        $mail->SMTPDebug = SMTP::DEBUG_SERVER;
-        $mail->Debugoutput = static function (string $line) use (&$serverError): void {
-            if (preg_match('/SERVER -> CLIENT: ([45]\d\d[^\r\n]*)/', $line, $m)) {
-                $serverError = trim($m[1]);
-            }
-        };
         try {
             $mail->isSMTP();
             $mail->Host = $this->host;
@@ -102,7 +91,7 @@ class HandoffMailer
 
             return null;
         } catch (MailException $e) {
-            return ($mail->ErrorInfo ?: $e->getMessage()) . ($serverError !== '' ? " [server: {$serverError}]" : '');
+            return $mail->ErrorInfo ?: $e->getMessage();
         }
     }
 
