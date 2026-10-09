@@ -34,6 +34,22 @@ final class OpenAiCompatibleProviderTest extends TestCase
         self::assertStringNotContainsString('"strict"', $json);
     }
 
+    public function testReasoningOption(): void
+    {
+        self::assertArrayNotHasKey('reasoning', $this->bodyWith(''), 'not sent unless configured');
+        self::assertSame(['enabled' => false], $this->bodyWith('off')['reasoning']);
+        self::assertSame(['effort' => 'low'], $this->bodyWith('low')['reasoning']);
+    }
+
+    private function bodyWith(string $reasoning): array
+    {
+        $http = new ScriptedHttp([ScriptedHttp::text('Hi!')]);
+        (new OpenAiCompatibleProvider('openrouter', 'deepseek/deepseek-v4.1-flash', 'https://openrouter.ai/api/v1/', ['k'], 'max_tokens', 30, $http, $reasoning))
+            ->complete('S', [], [['role' => 'user', 'content' => 'x']], 100);
+
+        return $http->requests[0]['body'];
+    }
+
     public function testTextReplyAndUsage(): void
     {
         $response = $this->provider(new ScriptedHttp([ScriptedHttp::text('Order shipped.', 300, 40)]))

@@ -217,7 +217,8 @@ See `.env.example`. Key settings:
 |---|---|---|
 | `LLM_PROVIDERS` | `gemini,openrouter` | AI providers in order: primary, then fallbacks |
 | `LLM_GEMINI_MODEL` | (required) | Gemini model ID from Google AI Studio |
-| `LLM_OPENROUTER_MODEL` | (required) | OpenRouter model ID that supports tool calling, e.g. `anthropic/<claude model>` |
+| `LLM_OPENROUTER_MODEL` | `deepseek/deepseek-v4.1-flash` | OpenRouter model ID that supports tool calling |
+| `LLM_OPENROUTER_REASONING` | `off` | `off` / `low` / `medium` / `high`. Off keeps thinking models from spending tokens (and the reply's `MAX_OUTPUT_TOKENS`) on hidden reasoning |
 | `LLM_GEMINI_API_KEY` / `LLM_OPENROUTER_API_KEY` | (secrets) | From Secret Manager. Several comma-separated keys are tried in turn on 401/403/429. |
 | `LLM_CLAUDE_MODEL` / `LLM_CLAUDE_EFFORT` | `claude-opus-5-5` / `low` | Only if you call Anthropic directly (`claude` in `LLM_PROVIDERS`) |
 | `LLM_<NAME>_DAILY_TOKEN_LIMIT` | 0 (none) | Per-provider cap; over it, the next provider answers |

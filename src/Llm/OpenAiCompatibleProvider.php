@@ -23,6 +23,7 @@ final class OpenAiCompatibleProvider implements LlmProvider
      * @param list<string> $apiKeys tried in order on rate-limit or key errors
      * @param string $maxTokensParam "max_tokens" (Gemini, most providers) or "max_completion_tokens" (newer OpenAI models)
      * @param callable|null $transport for tests: fn(url, headers, body, timeout) => [status, body]
+     * @param string $reasoning "" sends nothing; "off" or an effort level sends OpenRouter's `reasoning` option
      */
     public function __construct(
         private readonly string $name,
@@ -32,6 +33,7 @@ final class OpenAiCompatibleProvider implements LlmProvider
         private readonly string $maxTokensParam = 'max_tokens',
         private readonly int $timeoutSeconds = 60,
         ?callable $transport = null,
+        private readonly string $reasoning = '',
     ) {
         $this->transport = $transport ?? self::curlTransport(...);
     }
@@ -48,13 +50,17 @@ final class OpenAiCompatibleProvider implements LlmProvider
 
     public function complete(string $system, array $tools, array $messages, int $maxOutputTokens): LlmResponse
     {
-        $body = json_encode([
+        $request = [
             'model' => $this->model,
             'messages' => array_merge([['role' => 'system', 'content' => $system]], $messages),
             'tools' => array_map(self::toolDefinition(...), $tools),
             'tool_choice' => 'auto',
             $this->maxTokensParam => $maxOutputTokens,
-        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        ];
+        if ($this->reasoning !== '') {
+            $request['reasoning'] = $this->reasoning === 'off' ? ['enabled' => false] : ['effort' => $this->reasoning];
+        }
+        $body = json_encode($request, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $url = rtrim($this->baseUrl, '/') . '/chat/completions';
 
         $lastStatus = 0;

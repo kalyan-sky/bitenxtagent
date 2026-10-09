@@ -125,6 +125,7 @@ final class App
                     $settings->apiKeys,
                     $settings->maxTokensParam,
                     $settings->timeoutSeconds,
+                    reasoning: $settings->reasoning,
                 );
         }
         if ($providers === []) {

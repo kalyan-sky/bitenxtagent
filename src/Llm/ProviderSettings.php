@@ -14,6 +14,9 @@ namespace Bitenxt\SupportAgent\Llm;
  *   LLM_<NAME>_BASE_URL=...              openai-compatible only
  *   LLM_<NAME>_MAX_TOKENS_PARAM=max_tokens | max_completion_tokens   (openai-compatible only)
  *   LLM_<NAME>_EFFORT=low                anthropic only
+ *   LLM_<NAME>_REASONING=off             openai-compatible only: off | low | medium | high, or empty to send nothing
+ *                                        (OpenRouter's "reasoning" option; "off" keeps thinking models from spending
+ *                                        the reply's token budget on hidden reasoning)
  *   LLM_<NAME>_DAILY_TOKEN_LIMIT=0       0 = no provider-specific limit
  *   LLM_<NAME>_TIMEOUT_SECONDS=60
  *
@@ -29,8 +32,10 @@ final class ProviderSettings
         'gemini' => ['type' => self::OPENAI_COMPATIBLE, 'base_url' => 'https://generativelanguage.googleapis.com/v1beta/openai/', 'key_env' => 'GEMINI_API_KEY'],
         'claude' => ['type' => self::ANTHROPIC, 'model' => 'claude-opus-5-5', 'key_env' => 'ANTHROPIC_API_KEY', 'model_env' => 'CLAUDE_MODEL', 'effort_env' => 'CLAUDE_EFFORT'],
         'anthropic' => ['type' => self::ANTHROPIC, 'model' => 'claude-opus-5-5', 'key_env' => 'ANTHROPIC_API_KEY'],
-        // OpenRouter: one key for many models (Claude, GPT, Llama, ...); pick one that supports tool calling.
-        'openrouter' => ['type' => self::OPENAI_COMPATIBLE, 'base_url' => 'https://openrouter.ai/api/v1/', 'key_env' => 'OPENROUTER_API_KEY'],
+        // OpenRouter: one key for many models (DeepSeek, Claude, GPT, ...); the model must support tool calling.
+        // Default: DeepSeek V4.1 Flash, a low-cost model with tool calling, with reasoning off.
+        'openrouter' => ['type' => self::OPENAI_COMPATIBLE, 'base_url' => 'https://openrouter.ai/api/v1/', 'key_env' => 'OPENROUTER_API_KEY',
+            'model' => 'deepseek/deepseek-v4.1-flash', 'reasoning' => 'off'],
         'openai' => ['type' => self::OPENAI_COMPATIBLE, 'base_url' => 'https://api.openai.com/v1/', 'key_env' => 'OPENAI_API_KEY', 'max_tokens_param' => 'max_completion_tokens'],
     ];
 
@@ -45,6 +50,7 @@ final class ProviderSettings
         public readonly string $maxTokensParam = 'max_tokens',
         public readonly int $dailyTokenLimit = 0,
         public readonly int $timeoutSeconds = 60,
+        public readonly string $reasoning = '',
     ) {
     }
 
@@ -80,6 +86,7 @@ final class ProviderSettings
                 maxTokensParam: $env($var('MAX_TOKENS_PARAM'), $preset['max_tokens_param'] ?? 'max_tokens'),
                 dailyTokenLimit: (int) $env($var('DAILY_TOKEN_LIMIT'), '0'),
                 timeoutSeconds: (int) $env($var('TIMEOUT_SECONDS'), '60'),
+                reasoning: strtolower($env($var('REASONING'), $preset['reasoning'] ?? '')),
             );
         }
 
@@ -94,6 +101,7 @@ final class ProviderSettings
             $this->model === '' => 'MODEL is not set',
             $this->apiKeys === [] => 'API_KEY is not set',
             $this->type === self::OPENAI_COMPATIBLE && $this->baseUrl === '' => 'BASE_URL is not set',
+            !in_array($this->reasoning, ['', 'off', 'low', 'medium', 'high'], true) => "unknown REASONING '{$this->reasoning}'",
             default => null,
         };
     }

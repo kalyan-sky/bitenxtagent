@@ -52,6 +52,29 @@ final class ProviderSettingsTest extends TestCase
         self::assertNull($openrouter->problem());
     }
 
+    public function testOpenRouterDefaultsToDeepSeekFlashWithReasoningOff(): void
+    {
+        [$openrouter] = ProviderSettings::fromEnvironment(self::env([
+            'LLM_PROVIDERS' => 'openrouter',
+            'LLM_OPENROUTER_API_KEY' => 'sk-or-v1-x',
+        ]));
+        self::assertSame('deepseek/deepseek-v4.1-flash', $openrouter->model);
+        self::assertSame('off', $openrouter->reasoning);
+        self::assertNull($openrouter->problem());
+
+        [$custom] = ProviderSettings::fromEnvironment(self::env([
+            'LLM_PROVIDERS' => 'openrouter',
+            'LLM_OPENROUTER_API_KEY' => 'sk-or-v1-x',
+            'LLM_OPENROUTER_MODEL' => 'other/model',
+            'LLM_OPENROUTER_REASONING' => 'maybe',
+        ]));
+        self::assertSame('other/model', $custom->model);
+        self::assertSame("unknown REASONING 'maybe'", $custom->problem());
+
+        [$gemini] = ProviderSettings::fromEnvironment(self::env(['LLM_PROVIDERS' => 'gemini', 'LLM_GEMINI_MODEL' => 'g', 'LLM_GEMINI_API_KEY' => 'k']));
+        self::assertSame('', $gemini->reasoning, 'nothing extra is sent to Gemini');
+    }
+
     public function testOldAnthropicOnlySetupStillWorks(): void
     {
         $providers = ProviderSettings::fromEnvironment(self::env(['ANTHROPIC_API_KEY' => 'sk-ant-x', 'CLAUDE_EFFORT' => 'medium']));

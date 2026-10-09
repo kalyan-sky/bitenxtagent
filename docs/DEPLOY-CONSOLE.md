@@ -46,7 +46,7 @@ Then, in that database:
 ### 4. AI API keys in Secret Manager
 
 The chatbot uses **Gemini first** and **OpenRouter as automatic fallback**. OpenRouter gives one key for many
-models (Claude, GPT, …). Get the keys:
+models (DeepSeek, Claude, GPT, …); the default is DeepSeek V4.1 Flash. Get the keys:
 - **Gemini:** [Google AI Studio](https://aistudio.google.com) → **Get API key**. Create it in a Google Cloud
   project with billing, so you can set quotas (see "Spend protection" below).
 - **OpenRouter:** [openrouter.ai](https://openrouter.ai) → **Keys** → **Create key**. Set a **credit limit** on
@@ -129,7 +129,8 @@ variables**. Add:
 | `STORE_NAME` | `BiteNXT` | no (default) |
 | `LLM_PROVIDERS` | `gemini,openrouter` (order = primary, then fallback) | yes |
 | `LLM_GEMINI_MODEL` | the Gemini model ID from Google AI Studio (e.g. a current Gemini Flash model) | yes |
-| `LLM_OPENROUTER_MODEL` | a model ID from openrouter.ai/models that supports **tool calling**, e.g. `anthropic/<claude model>` | yes |
+| `LLM_OPENROUTER_MODEL` | a model ID from openrouter.ai/models that supports **tool calling**; default `deepseek/deepseek-v4.1-flash` | no |
+| `LLM_OPENROUTER_REASONING` | `off` (default) / `low` / `medium` / `high`; keep `off` for cost and short replies | no |
 | `HANDOFF_WEBHOOK_URL` | Slack/Teams incoming webhook for "talk to a person" | no |
 | `HISTORY_RETENTION_DAYS` | `90` | no (default) |
 | `CONVERSATION_IDLE_MINUTES` | `30` | no (default) |
