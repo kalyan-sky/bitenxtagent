@@ -128,7 +128,13 @@ final class OpenAiCompatibleProvider implements LlmProvider
             $input = json_decode($arguments === '' ? '{}' : $arguments, true);
 
             $calls[] = new ToolCall($id, $name, is_array($input) ? $input : ['__invalid_json' => true]);
-            $storedCalls[] = ['id' => $id, 'type' => 'function', 'function' => ['name' => $name, 'arguments' => $arguments]];
+            $stored = ['id' => $id, 'type' => 'function', 'function' => ['name' => $name, 'arguments' => $arguments]];
+            // Gemini 3 attaches a "thought signature" to tool calls and rejects the
+            // next request (HTTP 400) if it is not sent back unchanged with them.
+            if (isset($call['extra_content']) && is_array($call['extra_content'])) {
+                $stored['extra_content'] = $call['extra_content'];
+            }
+            $storedCalls[] = $stored;
         }
 
         $text = is_string($message['content'] ?? null) ? trim($message['content']) : '';
