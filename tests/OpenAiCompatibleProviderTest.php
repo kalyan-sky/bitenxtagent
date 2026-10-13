@@ -57,6 +57,25 @@ final class OpenAiCompatibleProviderTest extends TestCase
         self::assertSame($id, $response->assistantMessage['tool_calls'][0]['id'], 'and stored in history so the tool result matches');
     }
 
+    public function testGeminiThoughtSignatureIsSentBackWithTheToolCall(): void
+    {
+        $call = ScriptedHttp::toolCall('search_help_articles', ['query' => 'place order']);
+        $signature = ['google' => ['thought_signature' => 'sig-abc123']];
+        $call[1]['choices'][0]['message']['tool_calls'][0]['extra_content'] = $signature;
+        $http = new ScriptedHttp([$call, ScriptedHttp::text('Here is how.')]);
+        $provider = $this->provider($http);
+
+        $first = $provider->complete('S', [], [['role' => 'user', 'content' => 'how do I order?']], 100);
+        self::assertSame($signature, $first->assistantMessage['tool_calls'][0]['extra_content'], 'kept in history');
+
+        $messages = [['role' => 'user', 'content' => 'how do I order?'], $first->assistantMessage,
+            ...$provider->toolResultMessages([['id' => $first->toolCalls[0]->id, 'name' => 'search_help_articles', 'content' => '{}', 'isError' => false]])];
+        $provider->complete('S', [], $messages, 100);
+
+        // Without this Gemini 3 answers HTTP 400 "Function call is missing a thought_signature".
+        self::assertSame($signature, $http->requests[1]['body']['messages'][2]['tool_calls'][0]['extra_content']);
+    }
+
     public function testRotatesToTheNextKeyOnRateLimitOrBadKey(): void
     {
         $http = new ScriptedHttp([[429, ['error' => ['message' => 'quota']]], [401, 'bad key'], ScriptedHttp::text('ok')]);

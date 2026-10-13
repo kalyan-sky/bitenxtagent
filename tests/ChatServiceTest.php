@@ -758,6 +758,17 @@ final class ChatServiceTest extends TestCase
         self::assertSame([], $this->mailer->sent);
     }
 
+    public function testEveryReplySaysWhereItCameFrom(): void
+    {
+        $say = fn (ScriptedClaude $claude, string $text) => $this->service($claude, fastPath: true, articles: true)
+            ->handle($text, 'token-clinic-a', '10.0.0.1');
+
+        self::assertSame('template', $say(new ScriptedClaude([]), 'my orders')['source']);
+        self::assertSame('article', $say(new ScriptedClaude([]), 'How do I place an order?')['source']);
+        self::assertSame('ai', $say(new ScriptedClaude([ScriptedClaude::text('Two are in production.')]), 'which orders are still in production?')['source']);
+        self::assertSame('ai_unavailable', $say(new ScriptedClaude([['stop_reason' => 'refusal', 'content' => [['type' => 'text', 'text' => '']]]]), 'why is my crown late?')['source']);
+    }
+
     public function testFailedHandOverIsNotPromisedToTheCustomer(): void
     {
         $this->mailer->fail = true;

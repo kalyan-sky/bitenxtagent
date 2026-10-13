@@ -10,6 +10,7 @@ use Bitenxt\SupportAgent\Guardrails\InputGuard;
 use Bitenxt\SupportAgent\Guardrails\OutputGuard;
 use Bitenxt\SupportAgent\Guardrails\RateLimiter;
 use Bitenxt\SupportAgent\Knowledge\KnowledgeBase;
+use Bitenxt\SupportAgent\Llm\LlmResponse;
 use Bitenxt\SupportAgent\Magento\CustomerDataSource;
 use Bitenxt\SupportAgent\Magento\MagentoAuthException;
 use Bitenxt\SupportAgent\Magento\MagentoException;
@@ -155,8 +156,9 @@ final class ChatService
             'turn' => $session->userTurns,
         ]);
 
-        $response = $this->finish($session, $input->text, $output->text, $output->wasBlocked() ? [] : $quickReplies);
         $path = in_array($result['stop_reason'], ['fast_path', 'article', 'menu'], true) ? $result['stop_reason'] : 'ai';
+        $response = $this->finish($session, $input->text, $output->text, $output->wasBlocked() ? [] : $quickReplies)
+            + ['source' => self::source($path, $result['stop_reason'], $output->wasBlocked())];
         $this->logger->log('timing', ['session' => $session->id, 'path' => $path,
             'total_ms' => (int) ((hrtime(true) - $started) / 1e6)] + Timing::summary());
 
@@ -285,6 +287,23 @@ final class ChatService
         $this->sessions->save($session);
 
         return ['status' => 200, 'reply' => $reply, 'at' => time()] + ($quickReplies !== [] ? ['quick_replies' => $quickReplies] : []);
+    }
+
+    /**
+     * Where a reply came from, for the frontend team and testers (visible in the
+     * browser's network tab, never shown in the chat): "template" and "article"
+     * involve no AI; "ai" was written by the AI; "ai_unavailable" is the
+     * fixed reply when no AI could answer (limit reached or provider errors).
+     */
+    private static function source(string $path, string $stopReason, bool $blocked): string
+    {
+        return match (true) {
+            $blocked => 'blocked',
+            $path === 'fast_path' => 'template',
+            $path === 'article', $path === 'menu' => $path,
+            in_array($stopReason, [LlmResponse::END, LlmResponse::MAX_TOKENS], true) => 'ai',
+            default => 'ai_unavailable',
+        };
     }
 
     /** @param array<string, mixed> $customer */
